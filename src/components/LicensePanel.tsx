@@ -1,4 +1,5 @@
-import { BadgeCheck, KeyRound, Loader2 } from "lucide-react";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import { BadgeCheck, ExternalLink, KeyRound, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { errorText } from "../lib/ai";
 import { activate, deactivate, licenseState, MARKET, TRIAL_DAYS, type LicenseState } from "../lib/license";
@@ -57,7 +58,11 @@ export default function LicensePanel() {
           </button>
         </div>
       )}
-      {!MARKET.url && <p className="muted small">마켓이 열리면 이곳에서 구독 키를 등록할 수 있습니다.</p>}
+      {state?.state !== "active" && (
+        <button className="link-btn" onClick={() => openUrl(`${MARKET.url}/studio/${MARKET.slug}/subscribe`).catch(() => {})}>
+          <ExternalLink size={13} /> 마켓에서 구독하고 키 받기
+        </button>
+      )}
       {error && <p className="error">{error}</p>}
     </div>
   );
