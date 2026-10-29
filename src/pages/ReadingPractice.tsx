@@ -268,7 +268,8 @@ export default function ReadingPractice({ testId, onExit }: { testId: number; on
       )}
 
       <div className="split lookup-zone" data-test-id={test.id}>
-        <article className="passage">
+        {/* Keyed by passage so each Part opens at its top, not where the previous one was scrolled to. */}
+        <article key={passage.id} className="passage">
           {passage.title && <h2>{passage.title}</h2>}
           {listening &&
             (passage.audio ? (
@@ -291,7 +292,7 @@ export default function ReadingPractice({ testId, onExit }: { testId: number; on
             />
           )}
         </article>
-        <div className="questions">
+        <div key={passage.id} className="questions">
           {passage.groups.map((g) => (
             <QuestionGroupView
               key={g.id}
