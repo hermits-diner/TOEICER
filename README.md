@@ -4,6 +4,8 @@ TOEIC Listening and Reading을 대비하는 Windows 데스크톱 앱입니다. �
 
 [IELTS_Practice](https://github.com/hermits-diner/IELTS_Practice), [TOEFLER](https://github.com/hermits-diner/TOEFLER)와 같은 기반(Tauri 2 + React 19 + TypeScript)에서 출발했고, 디자인 언어는 같되 TOEICER만의 '오피스' 테마(먹색 글씨·에메랄드 포인트·오렌지 강조)와 서류가방 아이콘을 씁니다.
 
+**사용법 영상**: [docs/media/toeicer-tour.mp4](docs/media/toeicer-tour.mp4) (약 1분 · 샘플 가져오기 → AI 출제 → Listening Part 2 풀이와 채점 → Reading Part 5 → 인쇄 → 가이드). 다시 만드는 방법은 [scripts/tour](scripts/tour/README.md).
+
 ## 무엇을 할 수 있나
 
 ### 실제 시험 형식 그대로 풀기
