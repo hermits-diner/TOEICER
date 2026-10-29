@@ -1,6 +1,7 @@
 mod ai;
 mod backup;
 mod cli;
+mod edition;
 mod media;
 mod mp3;
 mod package;
@@ -96,6 +97,10 @@ pub fn run() {
             take_opened_files
         ])
         .setup(|app| {
+            // Studio's first start on a computer with the free edition: bring the user's data across.
+            if let Err(e) = edition::adopt_reader_data(app.handle(), DB_URL.trim_start_matches("sqlite:")) {
+                eprintln!("could not copy the free edition's data: {e}");
+            }
             // Swap in a restored database before the webview gets a chance to open the current one.
             if let Err(e) = backup::apply_pending_restore(app.handle()) {
                 eprintln!("restore failed: {e}");
