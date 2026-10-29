@@ -24,10 +24,12 @@ tauri-plugin-sql = { version = "2", features = ["sqlite"] }
 tauri-plugin-dialog = "2"
 # Remembers the window size and position between launches.
 tauri-plugin-window-state = "2"
+# A second launch from a double-clicked set file hands the file to the window already open.
+tauri-plugin-single-instance = "2"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "gzip", "brotli", "deflate", "cookies", "json", "multipart"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "gzip", "brotli", "deflate", "json"] }
 tokio = { version = "1", features = ["sync", "time", "process", "io-util"] }
 texting_robots = "0.2"
 pdf-extract = "0.9"

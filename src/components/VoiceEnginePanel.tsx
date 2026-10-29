@@ -2,15 +2,15 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { ExternalLink, KeyRound, Play, RefreshCw, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { deleteGeminiKey, errorText, geminiKeyStored, listGeminiModels, setGeminiKey, type AiSettings } from "../lib/ai";
-import { GEMINI_IMAGE_MODELS, GEMINI_SPEECH_MODELS, GEMINI_TTS_MODELS } from "../lib/ai";
+import { GEMINI_IMAGE_MODELS, GEMINI_TTS_MODELS } from "../lib/ai";
 import { splitGeminiModels, storeGemini } from "../lib/modelCatalog";
 import { loadAudio } from "../lib/repo";
 import { geminiSynthesize } from "../lib/tts";
 import Hint from "./Hint";
 import { useCatalog } from "./useCatalog";
 
-const SAMPLE = "Hello, and welcome. In this part of the test, you'll hear a conversation about booking a course.";
-const REPLY = "Thanks. Could you tell me when the first session starts, and how much it costs?";
+const SAMPLE = "Good morning. I'm calling about the conference room you reserved for Thursday afternoon.";
+const REPLY = "Thanks for letting me know. Could we move the meeting to the larger room on the fifth floor?";
 const KEY_URL = "https://aistudio.google.com/apikey";
 
 const PREVIEWS: { id: "female" | "male" | "dialogue"; label: string }[] = [
@@ -25,8 +25,8 @@ interface Props {
 }
 
 /**
- * Settings › AI › 음성: the one API key the app keeps. Gemini reads AI-written listening scripts aloud, listens to
- * speaking recordings and transcribes collected recordings; no CLI can take or make audio.
+ * Settings › AI › Gemini (Studio): the one API key the app keeps. Gemini reads listening scripts aloud and draws
+ * Part 1 photographs; no CLI can make audio or pictures.
  */
 export default function VoiceEnginePanel({ settings, onChange }: Props) {
   const [hasKey, setHasKey] = useState<boolean | null>(null);
@@ -73,7 +73,7 @@ export default function VoiceEnginePanel({ settings, onChange }: Props) {
       const ids = await listGeminiModels();
       storeGemini(ids);
       const split = splitGeminiModels(ids);
-      return `듣기 모델 ${split.speech.length}개, TTS 모델 ${split.tts.length}개를 불러왔습니다.`;
+      return `TTS 모델 ${split.tts.length}개, 그림 모델 ${split.image.length}개를 불러왔습니다.`;
     });
 
   const preview = (kind: "female" | "male" | "dialogue") =>
@@ -89,14 +89,14 @@ export default function VoiceEnginePanel({ settings, onChange }: Props) {
       }
     });
 
-  const speechOptions = [...new Set([...(catalog.gemini?.speech ?? GEMINI_SPEECH_MODELS), settings.speechModel].filter(Boolean))];
+  const imageOptions = [...new Set([...(catalog.gemini?.image ?? GEMINI_IMAGE_MODELS), settings.imageModel].filter(Boolean))];
   const ttsOptions = [...new Set([...(catalog.gemini?.tts ?? GEMINI_TTS_MODELS), settings.ttsModel].filter(Boolean))];
 
   return (
     <>
       <h3 className="section-title">
-        음성 (Google Gemini)
-        <Hint text="Listening 음성 만들기, Speaking 녹음 평가, 스크립트 받아쓰기는 소리를 다루므로 CLI로 할 수 없고 Gemini API 키를 씁니다. 키는 이 PC의 Windows 자격 증명 관리자에만 저장되며 호출마다 과금됩니다." />{" "}
+        음성·사진 (Google Gemini)
+        <Hint text="Listening 음성(Part 1–4)과 Part 1 사진은 CLI로 만들 수 없어 Gemini API 키를 씁니다. 키는 이 PC의 Windows 자격 증명 관리자에만 저장되며 호출마다 과금됩니다. 키가 없으면 스크립트를 Windows 음성으로 읽습니다." />{" "}
         {hasKey === true ? <span className="pill ok">키 저장됨</span> : hasKey === false ? <span className="pill">키 없음</span> : null}
       </h3>
       <div className="accent-row">
@@ -125,27 +125,6 @@ export default function VoiceEnginePanel({ settings, onChange }: Props) {
 
       <div className="accent-row wrap voice-rows">
         <label className="engine-model">
-          <span className="muted">
-            듣기·평가 모델
-            <Hint text="Speaking 녹음을 듣고 발음까지 네 기준으로 채점하고, 수집한 Listening 음원을 받아씁니다." />
-          </span>
-          <input
-            className="field"
-            list="gemini-speech-models"
-            value={settings.speechModel}
-            spellCheck={false}
-            onChange={(e) => onChange({ speechModel: e.target.value })}
-          />
-          <datalist id="gemini-speech-models">
-            {speechOptions.map((m) => (
-              <option key={m} value={m} />
-            ))}
-          </datalist>
-          <button className="btn" disabled={busy !== null || !hasKey} title={hasKey ? undefined : "먼저 키를 저장하세요."} onClick={() => void loadModels()}>
-            <RefreshCw size={14} className={busy === "models" ? "spin" : ""} /> 목록
-          </button>
-        </label>
-        <label className="engine-model">
           <span className="muted">읽기(TTS) 모델</span>
           <input
             className="field"
@@ -159,6 +138,9 @@ export default function VoiceEnginePanel({ settings, onChange }: Props) {
               <option key={m} value={m} />
             ))}
           </datalist>
+          <button className="btn" disabled={busy !== null || !hasKey} title={hasKey ? undefined : "먼저 키를 저장하세요."} onClick={() => void loadModels()}>
+            <RefreshCw size={14} className={busy === "models" ? "spin" : ""} /> 목록
+          </button>
           {PREVIEWS.map((v) => (
             <button key={v.id} className="btn ghost" disabled={busy !== null || !hasKey} onClick={() => void preview(v.id)}>
               <Play size={13} /> {busy === v.id ? "만드는 중…" : v.label}
@@ -175,7 +157,7 @@ export default function VoiceEnginePanel({ settings, onChange }: Props) {
             onChange={(e) => onChange({ imageModel: e.target.value })}
           />
           <datalist id="gemini-image-models">
-            {[...new Set([...GEMINI_IMAGE_MODELS, settings.imageModel].filter(Boolean))].map((m) => (
+            {imageOptions.map((m) => (
               <option key={m} value={m} />
             ))}
           </datalist>

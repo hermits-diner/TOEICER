@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 
-/** Speech for AI-written listening parts, made by Google's Gemini TTS models (ai_tts in src-tauri/src/ai.rs). */
+/** Speech for listening parts, made by Google's Gemini TTS models (ai_tts in src-tauri/src/ai.rs); Studio only. */
 
 export interface SynthTurn {
   speaker: string;
@@ -11,8 +11,6 @@ export interface SynthResult {
   /** Archive name, playable through loadAudio. */
   name: string;
   duration: number;
-  /** Word timing as JSON; empty, because Gemini returns none. Kept so the pipeline can store timing if a later engine has it. */
-  words: string;
 }
 
 export interface SpeakerInfo {

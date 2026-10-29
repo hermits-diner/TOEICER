@@ -1,4 +1,4 @@
-import type { Module, TestKind } from "./types";
+import type { TestKind } from "./types";
 
 /**
  * TOEIC Listening and Reading scores run 5–495 per section in steps of 5. ETS equates every form, so there is no
@@ -38,7 +38,7 @@ function interpolate(curve: Curve, pct: number): number {
   return 495;
 }
 
-export function bandFor(kind: TestKind, _module: Module, correct: number, total: number): BandResult {
+export function bandFor(kind: TestKind, correct: number, total: number): BandResult {
   const pct = total > 0 ? (correct * 100) / total : 0;
   const raw = interpolate(kind === "listening" ? LISTENING : READING, pct);
   const band = Math.min(495, Math.max(5, Math.round(raw / 5) * 5));

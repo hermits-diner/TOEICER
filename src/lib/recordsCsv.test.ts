@@ -16,7 +16,7 @@ describe("toCsv", () => {
 
 describe("keyText", () => {
   it("joins alternative answers and survives a bare string", () => {
-    expect(keyText('["flat roofs","roofs"]')).toBe("flat roofs | roofs");
+    expect(keyText('["B","C"]')).toBe("B | C");
     expect(keyText('"B"')).toBe("B");
     expect(keyText("not json")).toBe("not json");
   });

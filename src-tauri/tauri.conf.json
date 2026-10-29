@@ -48,6 +48,17 @@
         ]
       }
     },
-    "shortDescription": "TOEIC 학습 도구"
+    "shortDescription": "TOEIC Listening & Reading 문제 풀이",
+    "fileAssociations": [
+      {
+        "ext": [
+          "toic"
+        ],
+        "name": "TOEICER 문제 세트",
+        "description": "TOEIC Listening & Reading 문제 세트",
+        "role": "Viewer",
+        "mimeType": "application/x-toeicer-set"
+      }
+    ]
   }
 }

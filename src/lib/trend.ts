@@ -7,7 +7,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { complete, type AiSettings } from "./ai";
-import { extractJson } from "./generate";
+import { extractJson } from "./json";
 import { specForPrompt, TOEIC_PARTS } from "./toeicSpec";
 import { htmlToText } from "./html";
 
@@ -83,10 +83,8 @@ export function trendPrompt(pages: { url: string; text: string }[]): string {
 
 async function page(url: string): Promise<{ url: string; text: string }> {
   try {
-    const r = await invoke<{ kind: string; text: string | null }>("crawl_fetch", {
-      req: { url, minIntervalMs: 1500, respectRobots: true },
-    });
-    const text = !r.text ? "" : r.kind === "html" ? htmlToText(r.text).text : r.text;
+    const r = await invoke<{ kind: string; text: string }>("fetch_page", { url });
+    const text = r.kind === "html" ? htmlToText(r.text) : r.text;
     return { url, text: text.replace(/\s+/g, " ").trim().slice(0, 9000) };
   } catch {
     return { url, text: "" };

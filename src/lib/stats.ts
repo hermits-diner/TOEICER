@@ -1,31 +1,18 @@
 import { getDb } from "./db";
-import type { QuestionType, TestKind } from "./types";
-
-export const TYPE_LABELS: Record<QuestionType, string> = {
-  mcq: "객관식",
-  lmcq: "듣고 고르기",
-  cword: "Complete the Words",
-  build: "Build a Sentence",
-  tfng: "True / False / Not Given",
-  ynng: "Yes / No / Not Given",
-  heading: "제목 매칭",
-  matching: "정보·특징 매칭",
-  fill: "빈칸 완성",
-  short: "단답형",
-};
+import { partOfTitle, TOEIC_PARTS } from "./toeicSpec";
+import type { TestKind } from "./types";
 
 export interface Overview {
   attempts: number;
-  /** Total time across attempts and writing/speaking entries. */
+  /** Total time across attempts. */
   seconds: number;
   answered: number;
   correct: number;
-  entries: number;
-  /** Mean band of the last five banded attempts. */
-  recentBand: number | null;
+  /** Mean estimated section score (5–495) of the last five attempts. */
+  recentScore: number | null;
 }
 
-export interface BandPoint {
+export interface ScorePoint {
   attemptId: number;
   date: string;
   band: number;
@@ -33,13 +20,7 @@ export interface BandPoint {
   kind: TestKind;
 }
 
-export interface TypeAccuracy {
-  type: QuestionType;
-  answered: number;
-  correct: number;
-}
-
-/** Accuracy over one slice of the answered questions: a skill, or the target band of an AI-written set. */
+/** Accuracy over one slice of the answered questions: a section or part of the test, or the target of an AI-written set. */
 export interface Accuracy {
   label: string;
   answered: number;
@@ -51,7 +32,8 @@ export interface WrongItem {
   testId: number;
   testTitle: string;
   number: number;
-  type: QuestionType;
+  /** The TOEIC part the question belongs to, from its set's title. */
+  part: number | null;
   prompt: string | null;
   userAnswer: string;
   answer: string[];
@@ -69,23 +51,19 @@ export async function loadOverview(): Promise<Overview> {
   const [r] = await db.select<{ answered: number; correct: number | null }[]>(
     "SELECT COUNT(*) AS answered, SUM(is_correct) AS correct FROM response r WHERE NOT EXISTS (SELECT 1 FROM question_flag f WHERE f.question_id = r.question_id)",
   );
-  const [e] = await db.select<{ entries: number; seconds: number | null }[]>(
-    "SELECT COUNT(*) AS entries, SUM(duration_sec) AS seconds FROM practice_entry",
-  );
   const recent = await db.select<{ band: number }[]>(
     "SELECT band FROM attempt WHERE band IS NOT NULL ORDER BY id DESC LIMIT 5",
   );
   return {
     attempts: a.attempts,
-    seconds: (a.seconds ?? 0) + (e.seconds ?? 0),
+    seconds: a.seconds ?? 0,
     answered: r.answered,
     correct: r.correct ?? 0,
-    entries: e.entries,
-    recentBand: recent.length ? recent.reduce((s, x) => s + x.band, 0) / recent.length : null,
+    recentScore: recent.length ? recent.reduce((s, x) => s + x.band, 0) / recent.length : null,
   };
 }
 
-export async function loadBandHistory(): Promise<BandPoint[]> {
+export async function loadScoreHistory(): Promise<ScorePoint[]> {
   const db = await getDb();
   const rows = await db.select<{ id: number; started_at: string; band: number; title: string; kind: TestKind }[]>(
     `SELECT a.id, a.started_at, a.band, t.title, t.kind
@@ -96,38 +74,59 @@ export async function loadBandHistory(): Promise<BandPoint[]> {
   return rows.reverse().map((r) => ({ attemptId: r.id, date: r.started_at, band: r.band, title: r.title, kind: r.kind }));
 }
 
-export async function loadTypeAccuracy(): Promise<TypeAccuracy[]> {
+/** Answers by the set they belong to (its part is in the title, "Part 3 · …"), flagged questions left out. */
+async function byPassage(): Promise<{ kind: TestKind; title: string | null; answered: number; correct: number | null }[]> {
   const db = await getDb();
-  return db.select<TypeAccuracy[]>(
-    `SELECT g.type AS type, COUNT(*) AS answered, SUM(r.is_correct) AS correct
-       FROM response r
-       JOIN question q ON q.id = r.question_id
-       JOIN question_group g ON g.id = q.group_id
-      WHERE NOT EXISTS (SELECT 1 FROM question_flag f WHERE f.question_id = r.question_id)
-      GROUP BY g.type`,
-  );
-}
-
-const KIND_LABEL: Record<string, string> = { reading: "Reading", listening: "Listening", writing: "Writing", speaking: "Speaking" };
-
-/** Accuracy by skill, flagged questions left out. */
-export async function loadKindAccuracy(): Promise<Accuracy[]> {
-  const db = await getDb();
-  const rows = await db.select<{ kind: string; answered: number; correct: number | null }[]>(
-    `SELECT t.kind AS kind, COUNT(*) AS answered, SUM(r.is_correct) AS correct
+  return db.select(
+    `SELECT t.kind AS kind, p.title AS title, COUNT(*) AS answered, SUM(r.is_correct) AS correct
        FROM response r
        JOIN question q ON q.id = r.question_id
        JOIN question_group g ON g.id = q.group_id
        JOIN passage p ON p.id = g.passage_id
        JOIN test t ON t.id = p.test_id
       WHERE NOT EXISTS (SELECT 1 FROM question_flag f WHERE f.question_id = r.question_id)
-      GROUP BY t.kind`,
+      GROUP BY t.kind, p.title`,
   );
-  return rows.map((r) => ({ label: KIND_LABEL[r.kind] ?? r.kind, answered: r.answered, correct: r.correct }));
 }
 
-/** Accuracy by the target band an AI-written set was asked for; tells which difficulty is the working edge. */
-export async function loadBandAccuracy(): Promise<Accuracy[]> {
+function tally<R extends { answered: number; correct: number | null }>(rows: R[], key: (r: R) => string | null, order: string[]): Accuracy[] {
+  const out = new Map<string, Accuracy>();
+  for (const r of rows) {
+    const k = key(r);
+    if (!k) continue;
+    const a = out.get(k) ?? { label: k, answered: 0, correct: 0 };
+    a.answered += r.answered;
+    a.correct = (a.correct ?? 0) + (r.correct ?? 0);
+    out.set(k, a);
+  }
+  return order.filter((k) => out.has(k)).map((k) => out.get(k)!);
+}
+
+const SECTION: Record<TestKind, string> = { listening: "Listening", reading: "Reading" };
+const partLabel = (n: number) => {
+  const p = TOEIC_PARTS.find((x) => x.part === n)!;
+  return `Part ${n} · ${p.korean}`;
+};
+
+/** Accuracy by section: Listening and Reading. */
+export async function loadSectionAccuracy(): Promise<Accuracy[]> {
+  return tally(await byPassage(), (r) => SECTION[r.kind], Object.values(SECTION));
+}
+
+/** Accuracy by part (Part 1 사진 묘사 … Part 7 독해), in test order. */
+export async function loadPartAccuracy(): Promise<Accuracy[]> {
+  return tally(
+    await byPassage(),
+    (r) => {
+      const n = partOfTitle(r.title);
+      return n === null ? null : partLabel(n);
+    },
+    TOEIC_PARTS.map((p) => partLabel(p.part)),
+  );
+}
+
+/** Accuracy by the target score an AI-written set was asked for; tells which difficulty is the working edge. */
+export async function loadTargetAccuracy(): Promise<Accuracy[]> {
   const db = await getDb();
   const rows = await db.select<{ band: number; answered: number; correct: number | null }[]>(
     `SELECT x.band AS band, COUNT(*) AS answered, SUM(r.is_correct) AS correct
@@ -139,7 +138,7 @@ export async function loadBandAccuracy(): Promise<Accuracy[]> {
       WHERE NOT EXISTS (SELECT 1 FROM question_flag f WHERE f.question_id = r.question_id)
       GROUP BY x.band ORDER BY x.band`,
   );
-  return rows.map((r) => ({ label: `Band ${r.band}`, answered: r.answered, correct: r.correct }));
+  return rows.map((r) => ({ label: `목표 ${r.band}점`, answered: r.answered, correct: r.correct }));
 }
 
 /**
@@ -154,7 +153,7 @@ export async function loadWrongItems(includeScheduled = false): Promise<WrongIte
       test_id: number;
       test_title: string;
       number: number;
-      type: QuestionType;
+      passage_title: string | null;
       prompt: string | null;
       user_answer: string | null;
       answer_json: string;
@@ -166,7 +165,7 @@ export async function loadWrongItems(includeScheduled = false): Promise<WrongIte
     `WITH latest AS (
        SELECT r.question_id, MAX(r.id) AS rid FROM response r GROUP BY r.question_id
      )
-     SELECT q.id AS question_id, t.id AS test_id, t.title AS test_title, q.number, g.type, q.prompt,
+     SELECT q.id AS question_id, t.id AS test_id, t.title AS test_title, q.number, p.title AS passage_title, q.prompt,
             r.user_answer, q.answer_json, a.started_at,
             (SELECT COUNT(*) FROM response r2 WHERE r2.question_id = q.id AND r2.is_correct = 0) AS misses,
             n.memo
@@ -189,7 +188,7 @@ export async function loadWrongItems(includeScheduled = false): Promise<WrongIte
     testId: r.test_id,
     testTitle: r.test_title,
     number: r.number,
-    type: r.type,
+    part: partOfTitle(r.passage_title),
     prompt: r.prompt,
     userAnswer: r.user_answer ?? "",
     answer: JSON.parse(r.answer_json) as string[],
@@ -240,16 +239,13 @@ export async function saveMemo(questionId: number, memo: string): Promise<void> 
   else if (value) await db.execute("INSERT INTO note (question_id, memo) VALUES ($1, $2)", [questionId, value]);
 }
 
-/** Seconds studied over the last seven days (today included), across tests and writing/speaking entries. */
+/** Seconds studied over the last seven days (today included). */
 export async function loadWeekSeconds(): Promise<number> {
   const db = await getDb();
   const [a] = await db.select<{ s: number | null }[]>(
     "SELECT SUM(duration_sec) AS s FROM attempt WHERE started_at >= datetime('now', 'start of day', '-6 days')",
   );
-  const [e] = await db.select<{ s: number | null }[]>(
-    "SELECT SUM(duration_sec) AS s FROM practice_entry WHERE created_at >= datetime('now', 'start of day', '-6 days')",
-  );
-  return (a.s ?? 0) + (e.s ?? 0);
+  return a.s ?? 0;
 }
 
 export interface RecentTest {
@@ -263,11 +259,8 @@ export interface RecentTest {
 export async function loadRecentTests(limit = 4): Promise<RecentTest[]> {
   const db = await getDb();
   const rows = await db.select<{ test_id: number; title: string; kind: TestKind; at: string }[]>(
-    `SELECT t.id AS test_id, t.title, t.kind, MAX(x.at) AS at
-       FROM (SELECT test_id, started_at AS at FROM attempt
-             UNION ALL
-             SELECT p.test_id, e.created_at FROM practice_entry e JOIN passage p ON p.id = e.passage_id) x
-       JOIN test t ON t.id = x.test_id
+    `SELECT t.id AS test_id, t.title, t.kind, MAX(a.started_at) AS at
+       FROM attempt a JOIN test t ON t.id = a.test_id
       GROUP BY t.id
       ORDER BY at DESC
       LIMIT $1`,

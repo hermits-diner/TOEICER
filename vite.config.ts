@@ -6,8 +6,10 @@ import process from "node:process";
 const host = process.env.TAURI_DEV_HOST;
 
 // https://vite.dev/config/
-export default defineConfig(() => ({
+export default defineConfig(({ mode }) => ({
   plugins: [react(), tailwindcss()],
+  // The edition is fixed at build time, so a Reader build drops Studio's code entirely (see src/lib/edition.ts).
+  define: { __STUDIO__: JSON.stringify(mode === "studio") },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //

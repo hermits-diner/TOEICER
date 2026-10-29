@@ -1,7 +1,15 @@
 import { getDb } from "./db";
 
 /** Small per-user values kept in the database (the home photo is too large for localStorage). */
-type Key = "home_photo" | "exam_date" | "target_band" | "backup_dir";
+type Key =
+  | "home_photo"
+  | "exam_date"
+  | "target_score"
+  | "backup_dir"
+  | "samples_installed"
+  | "license.token"
+  | "license.key"
+  | "license.trialStart";
 
 export async function getSetting(key: Key): Promise<string | null> {
   const db = await getDb();

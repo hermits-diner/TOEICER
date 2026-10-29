@@ -3,26 +3,25 @@ import { BRAND, formatScore } from "../lib/brand";
 import ExplainPanel from "../components/ExplainPanel";
 import Hint from "../components/Hint";
 import VocabBook from "../components/VocabBook";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { KIND_LABEL } from "../lib/library";
+import { TOEIC_PARTS } from "../lib/toeicSpec";
 import {
-  loadBandAccuracy,
-  loadBandHistory,
-  loadKindAccuracy,
   loadOverview,
-  loadTypeAccuracy,
+  loadPartAccuracy,
+  loadScoreHistory,
+  loadSectionAccuracy,
+  loadTargetAccuracy,
   loadWrongItems,
   markReviewed,
   saveMemo,
-  TYPE_LABELS,
   type Accuracy,
-  type BandPoint,
   type Overview,
-  type TypeAccuracy,
+  type ScorePoint,
   type WrongItem,
 } from "../lib/stats";
-import { exportEntriesCsv, exportResponsesCsv } from "../lib/recordsCsv";
-
-const KIND_LABEL = { reading: "Reading", listening: "Listening", writing: "Writing", speaking: "Speaking" };
+import type { TestKind } from "../lib/types";
+import { exportResponsesCsv } from "../lib/recordsCsv";
 
 function duration(sec: number): string {
   const h = Math.floor(sec / 3600);
@@ -38,9 +37,9 @@ const shortDate = (s: string) => {
 function Tiles({ o }: { o: Overview }) {
   const rate = o.answered ? Math.round((o.correct / o.answered) * 100) : null;
   const tiles: [string, string, string?][] = [
-    [`최근 평균 ${BRAND.scoreName}`, o.recentBand === null ? "—" : formatScore(o.recentBand), "최근 5회"],
+    [`최근 평균 ${BRAND.scoreName}`, o.recentScore === null ? "—" : formatScore(o.recentScore), "최근 5회 · 영역별 5–495 추정"],
     ["정답률", rate === null ? "—" : `${rate}%`, `${o.correct.toLocaleString()} / ${o.answered.toLocaleString()}문항`],
-    ["풀이 횟수", o.attempts.toLocaleString(), o.entries ? `Writing·Speaking 기록 ${o.entries}개` : undefined],
+    ["풀이 횟수", o.attempts.toLocaleString()],
     ["학습 시간", duration(o.seconds)],
   ];
   return (
@@ -56,17 +55,24 @@ function Tiles({ o }: { o: Overview }) {
   );
 }
 
-/** Single-series band trend: 2px line, ringed 8px dots, crosshair tooltip. */
-function BandChart({ points }: { points: BandPoint[] }) {
+const SERIES: TestKind[] = ["listening", "reading"];
+
+/** Estimated section scores on the 5–495 scale, a line for Listening and one for Reading; crosshair tooltip. */
+function ScoreChart({ points }: { points: ScorePoint[] }) {
   const [hover, setHover] = useState<number | null>(null);
   const [asTable, setAsTable] = useState(false);
   const W = 640, H = 200, L = 34, R = 16, T = 14, B = 26;
-  const lo = Math.max(0, Math.floor(Math.min(...points.map((p) => p.band)) - 1));
-  const hi = 9;
+  const lo = 0;
+  const hi = 495;
   const x = (i: number) => (points.length === 1 ? (L + W - R) / 2 : L + (i * (W - L - R)) / (points.length - 1));
   const y = (b: number) => T + ((hi - b) * (H - T - B)) / (hi - lo);
-  const ticks = Array.from({ length: hi - lo + 1 }, (_, i) => lo + i);
-  const path = points.map((p, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(p.band).toFixed(1)}`).join(" ");
+  const ticks = [0, 100, 200, 300, 400, 495];
+  const path = (kind: TestKind) =>
+    points
+      .map((p, i) => [p, i] as const)
+      .filter(([p]) => p.kind === kind)
+      .map(([p, i], k) => `${k ? "L" : "M"}${x(i).toFixed(1)},${y(p.band).toFixed(1)}`)
+      .join(" ");
   const last = points[points.length - 1];
   const hp = hover === null ? null : points[hover];
 
@@ -74,8 +80,15 @@ function BandChart({ points }: { points: BandPoint[] }) {
     <section className="chart-card">
       <div className="chart-head">
         <h3 className="section-title">
-          {BRAND.scoreName} 추이 <span className="muted">· Reading·Listening 최근 30회</span>
+          예상 {BRAND.scoreName} 추이 <span className="muted">· 최근 30회 · 영역별 5–495</span>
         </h3>
+        <span className="chart-legend">
+          {SERIES.map((k) => (
+            <span key={k} className={`legend-item ${k}`}>
+              {KIND_LABEL[k]}
+            </span>
+          ))}
+        </span>
         <button className="btn ghost small" onClick={() => setAsTable((v) => !v)}>
           {asTable ? "차트" : "표"}
         </button>
@@ -83,7 +96,7 @@ function BandChart({ points }: { points: BandPoint[] }) {
       {asTable ? (
         <table className="facts compact">
           <thead>
-            <tr><th>날짜</th><th>시험</th><th>{BRAND.scoreName}</th></tr>
+            <tr><th>날짜</th><th>세트</th><th>예상 {BRAND.scoreName}</th></tr>
           </thead>
           <tbody>
             {[...points].reverse().map((p) => (
@@ -105,10 +118,12 @@ function BandChart({ points }: { points: BandPoint[] }) {
               </g>
             ))}
             {hp && <line x1={x(hover!)} x2={x(hover!)} y1={T} y2={H - B} className="crosshair" />}
-            <path d={path} className="series-line" />
+            {SERIES.map((k) => (
+              <path key={k} d={path(k)} className={`series-line ${k}`} />
+            ))}
             {points.map((p, i) => (
               <g key={p.attemptId}>
-                <circle cx={x(i)} cy={y(p.band)} r={hover === i ? 6 : 4.5} className="series-dot" />
+                <circle cx={x(i)} cy={y(p.band)} r={hover === i ? 6 : 4.5} className={`series-dot ${p.kind}`} />
                 {/* Hit target wider than the mark. */}
                 <rect
                   x={x(i) - Math.max(8, (W - L - R) / Math.max(1, points.length - 1) / 2)}
@@ -148,39 +163,7 @@ function BandChart({ points }: { points: BandPoint[] }) {
   );
 }
 
-/** Accuracy by question type, weakest first, value at each bar tip. */
-function TypeBars({ rows }: { rows: TypeAccuracy[] }) {
-  const sorted = useMemo(
-    () => [...rows].map((r) => ({ ...r, rate: r.answered ? (r.correct ?? 0) / r.answered : 0 })).sort((a, b) => a.rate - b.rate),
-    [rows],
-  );
-  return (
-    <section className="chart-card">
-      <h3 className="section-title">
-        문제 유형별 정답률 <span className="muted">· 낮은 순</span>
-      </h3>
-      <div className="bars">
-        {sorted.map((r) => (
-          <div
-            key={r.type}
-            className="bar-row"
-            title={`${TYPE_LABELS[r.type]}: ${r.correct ?? 0}/${r.answered}문항 정답 (${Math.round(r.rate * 100)}%)`}
-          >
-            <span className="bar-label">{TYPE_LABELS[r.type]}</span>
-            <span className="bar-track">
-              <span className="bar-fill" style={{ width: `${Math.max(r.rate * 100, 1)}%` }} />
-            </span>
-            <span className="bar-value">
-              {Math.round(r.rate * 100)}% <span className="muted">· {r.answered}문항</span>
-            </span>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-/** Accuracy over labelled slices (skills, target bands), in the order given, value at each bar tip. */
+/** Accuracy over labelled slices (sections, parts, targets), in the order given, value at each bar tip. */
 function AccuracyBars({ title, note, rows }: { title: string; note: string; rows: Accuracy[] }) {
   return (
     <section className="chart-card">
@@ -230,9 +213,6 @@ function ExportRow() {
       <div className="accent-row">
         <button className="btn" title="문항 한 줄씩: 세트·날짜·점수·내 답·정답" onClick={() => void run(exportResponsesCsv)}>
           <FileDown size={14} /> 풀이 기록
-        </button>
-        <button className="btn" title="작성 한 편씩: 과제·단어 수·시간·AI 평가 band" onClick={() => void run(exportEntriesCsv)}>
-          <FileDown size={14} /> 쓰기·말하기 기록
         </button>
       </div>
       {notice && <p className="success">{notice}</p>}
@@ -285,7 +265,8 @@ function WrongNote({ onOpenTest }: { onOpenTest: (id: number) => void }) {
             <div key={w.questionId} className="wrong-row">
               <div className="row-main">
                 <div className="row-meta">
-                  {w.testTitle} · {w.number}번 · {TYPE_LABELS[w.type]}
+                  {w.testTitle} · {w.number}번
+                  {w.part !== null ? ` · Part ${w.part} ${TOEIC_PARTS[w.part - 1].korean}` : ""}
                   {w.misses > 1 && <span className="badge">{w.misses}회 틀림</span>}
                 </div>
                 {w.prompt && <div className="wrong-prompt">{w.prompt}</div>}
@@ -300,7 +281,7 @@ function WrongNote({ onOpenTest }: { onOpenTest: (id: number) => void }) {
                       className="field"
                       autoFocus
                       value={draft}
-                      placeholder="왜 틀렸는지 적어 두세요 (예: 패러프레이즈를 못 알아챔)"
+                      placeholder="왜 틀렸는지 적어 두세요 (예: 질문의 의문사를 놓침)"
                       onChange={(e) => setDraft(e.target.value)}
                       onKeyDown={(e) => {
                         if (e.key === "Enter") void commitMemo(w.questionId);
@@ -350,20 +331,20 @@ export default function Records({
 }) {
   const [tab, setTab] = useState<RecordsTab>(initialTab);
   const [overview, setOverview] = useState<Overview | null>(null);
-  const [bands, setBands] = useState<BandPoint[]>([]);
-  const [types, setTypes] = useState<TypeAccuracy[]>([]);
-  const [kinds, setKinds] = useState<Accuracy[]>([]);
-  const [targetBands, setTargetBands] = useState<Accuracy[]>([]);
+  const [scores, setScores] = useState<ScorePoint[]>([]);
+  const [sections, setSections] = useState<Accuracy[]>([]);
+  const [parts, setParts] = useState<Accuracy[]>([]);
+  const [targets, setTargets] = useState<Accuracy[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    Promise.all([loadOverview(), loadBandHistory(), loadTypeAccuracy(), loadKindAccuracy(), loadBandAccuracy()]).then(
-      ([o, b, t, k, tb]) => {
+    Promise.all([loadOverview(), loadScoreHistory(), loadSectionAccuracy(), loadPartAccuracy(), loadTargetAccuracy()]).then(
+      ([o, sc, se, pa, tg]) => {
         setOverview(o);
-        setBands(b);
-        setTypes(t);
-        setKinds(k);
-        setTargetBands(tb);
+        setScores(sc);
+        setSections(se);
+        setParts(pa);
+        setTargets(tg);
       },
       (e) => setError(String(e)),
     );
@@ -386,14 +367,16 @@ export default function Records({
             <div className="empty"><p>아직 풀이 기록이 없습니다.</p></div>
           ) : (
             <>
-              {bands.length > 0 && <BandChart points={bands} />}
-              {kinds.length > 1 && <AccuracyBars title="영역별 정답률" note="Reading과 Listening 풀이 기록을 영역별로 모았습니다." rows={kinds} />}
-              {types.length > 0 && <TypeBars rows={types} />}
-              {targetBands.length > 0 && (
+              {scores.length > 0 && <ScoreChart points={scores} />}
+              {sections.length > 1 && <AccuracyBars title="영역별 정답률" note="Listening과 Reading 풀이 기록을 영역별로 모았습니다." rows={sections} />}
+              {parts.length > 0 && (
+                <AccuracyBars title="파트별 정답률" note="Part 1 사진 묘사부터 Part 7 독해까지, 시험 순서대로 모았습니다. 정답률이 낮은 파트부터 연습하면 점수가 가장 빨리 오릅니다." rows={parts} />
+              )}
+              {targets.length > 0 && (
                 <AccuracyBars
-                  title="목표 Band별 정답률 (AI 세트)"
-                  note="세트를 만들 때 고른 목표 Band별 정답률입니다. 70% 아래로 떨어지는 Band가 지금 연습할 난이도입니다."
-                  rows={targetBands}
+                  title="목표 점수별 정답률 (AI 세트)"
+                  note="세트를 만들 때 고른 목표 점수(600·750·900)별 정답률입니다. 70% 아래로 떨어지는 목표가 지금 연습할 난이도입니다."
+                  rows={targets}
                 />
               )}
               <ExportRow />

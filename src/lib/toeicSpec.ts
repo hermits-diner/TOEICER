@@ -72,9 +72,6 @@ export const TOEIC_PARTS: PartSpec[] = [
   },
 ];
 
-export const LISTENING_MINUTES = 45;
-export const READING_MINUTES = 75;
-
 /** How many of each kind a generated full test holds: the real test, unshortened. */
 export const BLUEPRINT = {
   1: { items: 6 },
@@ -100,3 +97,11 @@ export function specForPrompt(parts: ToeicPart[]): string {
     .map((p) => `- Part ${p.part} ${p.name} (${p.questions} questions in the real test): ${p.description}`)
     .join("\n");
 }
+
+/** The part a set belongs to, from its title ("Part 3 · Conversation 2 (…)"); null when the title names none. */
+export function partOfTitle(title: string | null): ToeicPart | null {
+  const m = (title ?? "").match(/^Part\s+([1-7])\b/);
+  return m ? (Number(m[1]) as ToeicPart) : null;
+}
+
+export const sectionOf = (part: ToeicPart): "listening" | "reading" => (part <= 4 ? "listening" : "reading");

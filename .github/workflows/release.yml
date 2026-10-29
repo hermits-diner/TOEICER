@@ -1,4 +1,5 @@
-# Builds the Windows app on a v* tag and attaches the installer and the bare exe to the GitHub release of that tag.
+# Builds both Windows editions on a v* tag (TOEICER, the free reader, and TOEICER Studio) and attaches their
+# installers to the GitHub release of that tag.
 # The release may already exist (made by hand with a locally built exe); tauri-action then adds its assets to it.
 name: Release
 
@@ -32,7 +33,7 @@ jobs:
 
       - run: npm test
 
-      - name: Build and attach to the release
+      - name: Build TOEICER (reader) and attach it to the release
         uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -42,10 +43,13 @@ jobs:
           releaseDraft: false
           prerelease: false
 
-      - name: Attach the bare exe as well
-        shell: pwsh
+      - name: Build TOEICER Studio and attach it to the same release
+        uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          Copy-Item src-tauri/target/release/toeicer-app.exe "toeicer-app-${{ github.ref_name }}.exe"
-          gh release upload "${{ github.ref_name }}" "toeicer-app-${{ github.ref_name }}.exe" --clobber
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "TOEICER ${{ github.ref_name }}"
+          releaseDraft: false
+          prerelease: false
+          args: --config src-tauri/tauri.studio.conf.json

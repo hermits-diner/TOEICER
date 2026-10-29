@@ -1,5 +1,5 @@
-//! Text goes to a logged-in agent CLI (cli.rs); only speech (listening audio, transcription, speaking assessment)
-//! calls an API, Gemini's, with a key that lives in the OS credential store and never reaches the webview.
+//! Text goes to a logged-in agent CLI (cli.rs); only the listening media (speech for Parts 1–4, photographs for
+//! Part 1) call an API, Gemini's, with a key that lives in the OS credential store and never reaches the webview.
 
 use std::collections::HashMap;
 use std::time::Duration;
@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 const SERVICE: &str = "com.toeicer.app.ai";
-/// Providers with a key in the credential store: Gemini alone, for speech.
+/// Providers with a key in the credential store: Gemini alone, for listening speech and photographs.
 const PROVIDERS: [&str; 1] = ["gemini"];
 
 pub struct AiState {
@@ -19,7 +19,7 @@ impl AiState {
     pub fn new() -> Self {
         let client = reqwest::Client::builder()
             .user_agent(concat!("TOEICER-Study-App/", env!("CARGO_PKG_VERSION")))
-            // Feedback on a long essay can take a few minutes with thinking models.
+            // A whole Part 3 conversation or a photograph can take a minute or two.
             .timeout(Duration::from_secs(300))
             .connect_timeout(Duration::from_secs(15))
             .build()
@@ -45,7 +45,7 @@ fn read_key(provider: &str) -> Result<Option<String>, String> {
 }
 
 fn require_key(provider: &str) -> Result<String, String> {
-    read_key(provider)?.ok_or_else(|| "Gemini API 키가 없습니다. 설정 › AI › 음성에서 키를 저장하세요.".into())
+    read_key(provider)?.ok_or_else(|| "Gemini API 키가 없습니다. 설정 › AI › Gemini에서 키를 저장하세요.".into())
 }
 
 #[tauri::command]
@@ -155,75 +155,7 @@ pub async fn ai_complete(req: CompleteRequest) -> Result<CompleteResult, String>
     Ok(out)
 }
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AudioRequest {
-    /// Only "gemini": it listens to the recording itself.
-    provider: String,
-    model: String,
-    system: String,
-    prompt: String,
-    /// Archive name of the recording (from `save_recording`).
-    name: String,
-}
-
-/// Sends a speaking recording to a model that accepts audio.
-/// Gemini returns the model's reply to `prompt` about the recording; OpenAI returns a plain transcript.
-#[tauri::command]
-pub async fn ai_audio(app: tauri::AppHandle, state: tauri::State<'_, AiState>, req: AudioRequest) -> Result<CompleteResult, String> {
-    let (path, mime) = crate::crawler::archived_audio(&app, &req.name)?;
-    let bytes = std::fs::read(path).map_err(|_| "녹음 파일을 찾을 수 없습니다.".to_string())?;
-    let out = match req.provider.as_str() {
-        "gemini" => {
-            if req.model.trim().is_empty() {
-                return Err("음성 모델이 비어 있습니다. 설정 › AI › 음성에서 모델을 고르세요.".into());
-            }
-            let key = require_key("gemini")?;
-            let model = req.model.trim_start_matches("models/");
-            use base64::Engine;
-            let body = json!({
-                "systemInstruction": { "parts": [{ "text": req.system }] },
-                "contents": [{ "role": "user", "parts": [
-                    { "inline_data": { "mime_type": mime, "data": base64::engine::general_purpose::STANDARD.encode(&bytes) } },
-                    { "text": req.prompt },
-                ]}],
-            });
-            let resp = state
-                .client
-                .post(format!("https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"))
-                .header("x-goog-api-key", key)
-                .json(&body)
-                .send()
-                .await
-                .map_err(send_error)?;
-            if !resp.status().is_success() {
-                return Err(http_error("Gemini", resp).await);
-            }
-            let v: Value = resp.json().await.map_err(|e| format!("응답을 해석하지 못했습니다: {e}"))?;
-            if let Some(reason) = v.pointer("/promptFeedback/blockReason").and_then(Value::as_str) {
-                return Err(format!("Gemini가 요청을 차단했습니다 ({reason})."));
-            }
-            let text = v
-                .pointer("/candidates/0/content/parts")
-                .and_then(Value::as_array)
-                .map(|ps| ps.iter().filter_map(|p| p["text"].as_str()).collect::<Vec<_>>().join(""))
-                .unwrap_or_default();
-            CompleteResult {
-                text,
-                model: model.to_string(),
-                input_tokens: v.pointer("/usageMetadata/promptTokenCount").and_then(Value::as_u64),
-                output_tokens: v.pointer("/usageMetadata/candidatesTokenCount").and_then(Value::as_u64),
-            }
-        }
-        _ => return Err("음성은 Gemini로만 보낼 수 있습니다.".into()),
-    };
-    if out.text.trim().is_empty() {
-        return Err("녹음에서 말소리를 알아듣지 못했습니다. 마이크를 확인하고 다시 녹음해 주십시오.".into());
-    }
-    Ok(out)
-}
-
-/// Text-generation models the key can use, for the model picker.
+/// The models a CLI lists, or the Gemini models the key can use (for the TTS and image pickers).
 #[tauri::command]
 pub async fn ai_list_models(
     state: tauri::State<'_, AiState>,
@@ -287,7 +219,7 @@ mod tests {
     }
 }
 
-/* ---------- Gemini speech synthesis for AI-written listening tests ---------- */
+/* ---------- Gemini speech synthesis for listening parts ---------- */
 
 #[derive(Deserialize, Serialize, Clone)]
 pub struct TtsTurn {
@@ -310,8 +242,6 @@ pub struct TtsResult {
     /// Archive name for `read_audio`.
     name: String,
     duration: f64,
-    /// Always empty: Gemini returns no word timing.
-    words: String,
 }
 
 /// Request body for Gemini's TTS models. One speaker uses the plain single-voice form. Two speakers tag every turn
@@ -429,20 +359,20 @@ async fn gemini_tts_fetch(client: &reqwest::Client, key: &str, model: &str, body
     Ok(wav_from_gemini(mime, bytes))
 }
 
-/// Speech for an AI-written listening part through Gemini's TTS models; the WAV goes into the archive.
+/// Speech for a listening part through Gemini's TTS models, kept in the archive as MP3.
 #[tauri::command]
 pub async fn ai_tts(app: tauri::AppHandle, state: tauri::State<'_, AiState>, req: TtsRequest) -> Result<TtsResult, String> {
     let model = req.model.trim().trim_start_matches("models/");
     if model.is_empty() {
-        return Err("Gemini 음성 모델이 선택되지 않았습니다. 설정 › AI 첨삭 › 음성 엔진에서 골라 주십시오.".into());
+        return Err("Gemini 음성 모델이 선택되지 않았습니다. 설정 › AI › Gemini에서 골라 주십시오.".into());
     }
     let key = require_key("gemini")?;
     let body = gemini_tts_body(&req.turns, &req.voices)?;
     let (wav, duration) = gemini_tts_fetch(&state.client, &key, model, &body).await?;
     // Kept as MP3: a tenth of the WAV, which matters once sets are shared as packages.
     let mp3 = crate::mp3::wav_bytes_to_mp3(&app, &wav).await?;
-    let name = crate::crawler::archive_audio(&app, &mp3)?;
-    Ok(TtsResult { name, duration, words: String::new() })
+    let name = crate::media::archive_audio(&app, &mp3)?;
+    Ok(TtsResult { name, duration })
 }
 
 #[derive(Deserialize)]
@@ -467,7 +397,7 @@ pub(crate) fn gemini_image_body(prompt: &str) -> Result<Value, String> {
 pub async fn ai_image(app: tauri::AppHandle, state: tauri::State<'_, AiState>, req: ImageRequest) -> Result<String, String> {
     let model = req.model.trim().trim_start_matches("models/");
     if model.is_empty() {
-        return Err("Gemini 그림 모델이 선택되지 않았습니다. 설정 › AI › 음성·그림에서 골라 주십시오.".into());
+        return Err("Gemini 그림 모델이 선택되지 않았습니다. 설정 › AI › Gemini에서 골라 주십시오.".into());
     }
     let key = require_key("gemini")?;
     let body = gemini_image_body(&req.prompt)?;
@@ -496,7 +426,7 @@ pub async fn ai_image(app: tauri::AppHandle, state: tauri::State<'_, AiState>, r
         })?;
     use base64::Engine;
     let bytes = base64::engine::general_purpose::STANDARD.decode(data).map_err(|e| format!("그림 데이터를 읽지 못했습니다: {e}"))?;
-    crate::crawler::archive_image(&app, &bytes)
+    crate::media::archive_image(&app, &bytes)
 }
 
 #[cfg(test)]

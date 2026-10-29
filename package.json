@@ -5,10 +5,13 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:studio": "vite --mode studio",
     "build": "tsc && vite build",
+    "build:studio": "tsc && vite build --mode studio",
     "preview": "vite preview",
     "tauri": "tauri",
-    "build:exe": "tauri build --no-bundle",
+    "build:reader:exe": "tauri build",
+    "build:studio:exe": "tauri build --config src-tauri/tauri.studio.conf.json",
     "test": "vitest run"
   },
   "dependencies": {

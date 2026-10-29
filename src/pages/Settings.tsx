@@ -1,13 +1,16 @@
 import { Check, Minus, Plus } from "lucide-react";
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import AiSettingsPanel from "../components/AiSettingsPanel";
 import DataSettings from "../components/DataSettings";
 import Hint from "../components/Hint";
 import PhotoSettings from "../components/PhotoSettings";
 import { ACCENTS, clampZoom, THEMES, ZOOM_MAX, ZOOM_MIN, ZOOM_STEP, type Prefs } from "../lib/theme";
 
+// Studio only; a Reader build leaves it out.
+const LicensePanel = __STUDIO__ ? lazy(() => import("../components/LicensePanel")) : null;
+
 export default function Settings({ prefs, onChange }: { prefs: Prefs; onChange: (p: Prefs) => void }) {
-  const [tab, setTab] = useState<"display" | "ai" | "data">("display");
+  const [tab, setTab] = useState<"display" | "ai" | "data" | "license">("display");
   return (
     <div className="content settings">
       <h1>설정</h1>
@@ -15,8 +18,13 @@ export default function Settings({ prefs, onChange }: { prefs: Prefs; onChange: 
         <button className={tab === "display" ? "on" : ""} onClick={() => setTab("display")}>화면</button>
         <button className={tab === "ai" ? "on" : ""} onClick={() => setTab("ai")}>AI</button>
         <button className={tab === "data" ? "on" : ""} onClick={() => setTab("data")}>데이터</button>
+        {LicensePanel && (
+          <button className={tab === "license" ? "on" : ""} onClick={() => setTab("license")}>
+            Studio 구독
+          </button>
+        )}
       </div>
-      {tab === "ai" ? <AiSettingsPanel /> : tab === "data" ? <DataSettings /> : <>
+      {tab === "ai" ? <AiSettingsPanel /> : tab === "data" ? <DataSettings /> : tab === "license" && LicensePanel ? <Suspense fallback={null}><LicensePanel /></Suspense> : <>
       <h3 className="section-title">테마</h3>
       <div className="theme-grid">
         {THEMES.map((t) => (

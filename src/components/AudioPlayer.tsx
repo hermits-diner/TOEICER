@@ -5,7 +5,7 @@ import { loadAudio } from "../lib/repo";
 
 const RATES = [0.75, 1, 1.25, 1.5];
 
-/** Player for a listening section. A recording given by its address is downloaded once and kept in the archive. */
+/** Player for a listening set's recording, kept in the archive. */
 export default function AudioPlayer({ source }: { source: string }) {
   const [url, setUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -56,7 +56,7 @@ export default function AudioPlayer({ source }: { source: string }) {
   };
 
   if (error) return <p className="error">음성을 불러오지 못했습니다: {error}</p>;
-  if (!url) return <p className="muted">음성을 불러오는 중입니다. 처음 재생할 때 한 번 내려받아 보관하므로 잠시 걸릴 수 있습니다.</p>;
+  if (!url) return <p className="muted">음성을 불러오는 중…</p>;
 
   return (
     <div className="audio-player">

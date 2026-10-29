@@ -9,21 +9,25 @@ import QuestionGroupView from "./QuestionGroupView";
 
 vi.mock("./ExplainPanel", () => ({ default: () => null }));
 
-const options = ["A", "B", "C", "D", "E", "F"].map((key) => ({ key, text: `Option ${key}` }));
-
-const chooseThree: QuestionGroup = {
-  id: 2,
+const group: QuestionGroup = {
+  id: 1,
   type: "mcq",
-  instructions: "Questions 6-8 Choose THREE letters, A-F.",
-  options,
+  instructions: null,
+  options: [],
   image: null,
-  questions: [6, 7, 8].map((n) => ({
+  questions: [9, 10].map((n) => ({
     id: n,
     number: n,
-    prompt: "Which THREE things should the caller bring to the meeting?",
-    options: [],
-    answer: ["B", "D", "E"],
+    prompt: n === 9 ? "What is the purpose of the e-mail?" : "What will the man most likely do next?",
+    options: ["A", "B", "C", "D"].map((key) => ({ key, text: `${key} choice` })),
+    answer: ["B"],
   })),
+};
+const heard: QuestionGroup = {
+  ...group,
+  type: "lmcq",
+  image: "data:image/png;base64,AAAA",
+  questions: [{ id: 1, number: 1, prompt: "Number 1", options: ["A", "B", "C", "D"].map((key) => ({ key, text: `statement ${key}` })), answer: ["C"] }],
 };
 
 let root: Root;
@@ -39,84 +43,36 @@ afterEach(() => {
   host.remove();
 });
 
-/** Holds the answers the way ReadingPractice does, so several onAnswer calls in a row all land. */
-function Harness({ group, onChange }: { group: QuestionGroup; onChange: (a: Record<number, string>) => void }) {
+function Harness({ results, g = group }: { results?: Record<number, boolean>; g?: QuestionGroup }) {
   const [answers, setAnswers] = useState<Record<number, string>>({});
-  return (
-    <QuestionGroupView
-      group={group}
-      answers={answers}
-      onAnswer={(id, v) =>
-        setAnswers((a) => {
-          const next = { ...a, [id]: v };
-          onChange(next);
-          return next;
-        })
-      }
-    />
-  );
+  return <QuestionGroupView group={g} answers={answers} onAnswer={(id, v) => setAnswers((a) => ({ ...a, [id]: v }))} results={results} />;
 }
 
-const choiceButton = (key: string) =>
-  [...document.body.querySelectorAll<HTMLButtonElement>(".choice")].find((b) => b.querySelector("b")?.textContent === key)!;
-const click = (el: Element) => act(() => el.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+const choices = (n: number) => [...host.querySelectorAll(`#q-${n} .choice`)] as HTMLButtonElement[];
 
-describe("QuestionGroupView: Choose THREE letters", () => {
-  it("shows the item once, numbered 6–8, with one list of options", () => {
-    render(<Harness group={chooseThree} onChange={() => {}} />);
-    expect(document.body.querySelectorAll(".question").length).toBe(1);
-    expect(document.body.querySelector(".qnum")?.textContent).toBe("6–8");
-    expect(document.body.querySelectorAll(".choice").length).toBe(6);
-    expect(document.body.textContent).toContain("3개 선택");
+describe("QuestionGroupView", () => {
+  it("picks one choice per question and clears it on a second click", () => {
+    render(<Harness />);
+    act(() => choices(9)[1].click());
+    expect(choices(9)[1].className).toContain("on");
+    act(() => choices(9)[2].click());
+    expect(choices(9).filter((b) => b.className.includes("on"))).toHaveLength(1);
+    act(() => choices(9)[2].click());
+    expect(choices(9).some((b) => b.className.includes("on"))).toBe(false);
   });
-
-  it("lets three letters be picked and stores them one per question", () => {
-    let latest: Record<number, string> = {};
-    render(<Harness group={chooseThree} onChange={(a) => (latest = a)} />);
-    click(choiceButton("E"));
-    click(choiceButton("B"));
-    click(choiceButton("D"));
-    expect([...document.body.querySelectorAll(".choice.on")].map((b) => b.querySelector("b")?.textContent)).toEqual(["B", "D", "E"]);
-    expect(latest).toEqual({ 6: "B", 7: "D", 8: "E" });
+  it("locks the choices and shows the key after grading", () => {
+    render(<Harness results={{ 9: true, 10: false }} />);
+    expect(choices(9).every((b) => b.disabled)).toBe(true);
+    expect(host.querySelector("#q-9")?.className).toContain("correct");
+    expect(host.querySelector("#q-10 .answer-key")?.textContent).toBe("정답: B");
   });
-
-  it("blocks a fourth pick until one is cleared", () => {
-    let latest: Record<number, string> = {};
-    render(<Harness group={chooseThree} onChange={(a) => (latest = a)} />);
-    for (const k of ["A", "B", "C"]) click(choiceButton(k));
-    expect(choiceButton("D").disabled).toBe(true);
-    click(choiceButton("B"));
-    expect(choiceButton("D").disabled).toBe(false);
-    click(choiceButton("D"));
-    expect(latest).toEqual({ 6: "A", 7: "C", 8: "D" });
-  });
-
-  it("after submission marks each picked letter and shows the whole key", () => {
-    render(
-      <QuestionGroupView
-        group={chooseThree}
-        answers={{ 6: "B", 7: "C", 8: "E" }}
-        onAnswer={() => {}}
-        results={{ 6: true, 7: false, 8: true }}
-      />,
-    );
-    expect(choiceButton("B").classList.contains("ok")).toBe(true);
-    expect(choiceButton("E").classList.contains("ok")).toBe(true);
-    expect(choiceButton("C").classList.contains("bad")).toBe(true);
-    expect(document.body.textContent).toContain("2/3");
-    expect(document.body.querySelector(".answer-key")?.textContent).toContain("B, D, E");
-  });
-
-  it("still renders an ordinary mcq group one question at a time", () => {
-    const plain: QuestionGroup = {
-      ...chooseThree,
-      questions: [
-        { id: 1, number: 1, prompt: "When does the course start?", options: options.slice(0, 3), answer: ["A"] },
-        { id: 2, number: 2, prompt: "How much is the deposit?", options: options.slice(0, 3), answer: ["C"] },
-      ],
-    };
-    render(<Harness group={plain} onChange={() => {}} />);
-    expect(document.body.querySelectorAll(".question").length).toBe(2);
-    expect(document.body.textContent).not.toContain("개 선택");
+  it("shows a heard item's photo and letters only, and its words once graded", () => {
+    render(<Harness g={heard} />);
+    expect(host.querySelector("img.qgroup-figure")?.getAttribute("src")).toContain("data:image/png");
+    expect(choices(1).map((b) => b.textContent)).toEqual(["A", "B", "C", "D"]);
+    act(() => root.unmount());
+    host.remove();
+    render(<Harness g={heard} results={{ 1: false }} />);
+    expect(choices(1)[2].textContent).toBe("Cstatement C");
   });
 });

@@ -1,12 +1,13 @@
 /**
- * CSV files of the practice records: one row per answered question, and one per writing or speaking entry.
+ * A CSV file of the practice records, one row per answered question.
  * Written where the user picks, UTF-8 with a byte-order mark (package.rs write_text) so Excel reads Korean.
  */
 import { invoke } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
 import { getDb } from "./db";
-import { TYPE_LABELS } from "./stats";
-import type { QuestionType } from "./types";
+import { KIND_LABEL, ORIGIN_LABEL } from "./library";
+import { partOfTitle } from "./toeicSpec";
+import type { Origin, TestKind } from "./types";
 
 export type CsvCell = string | number | null | undefined;
 
@@ -36,14 +37,13 @@ export async function exportResponsesCsv(): Promise<string | null> {
       attempt_id: number;
       started_at: string;
       title: string;
-      kind: string;
-      module: string | null;
-      ai: number | null;
+      kind: TestKind;
+      origin: Origin | null;
       score: number | null;
       band: number | null;
       duration_sec: number | null;
       number: number;
-      type: QuestionType;
+      passage_title: string | null;
       prompt: string | null;
       user_answer: string | null;
       answer_json: string;
@@ -52,31 +52,31 @@ export async function exportResponsesCsv(): Promise<string | null> {
       flagged: number;
     }[]
   >(
-    `SELECT a.id AS attempt_id, a.started_at, t.title, t.kind, t.module,
-            (SELECT s.adapter = 'ai' FROM source s WHERE s.id = t.source_id) AS ai,
+    `SELECT a.id AS attempt_id, a.started_at, t.title, t.kind,
+            (SELECT s.adapter FROM source s WHERE s.id = t.source_id) AS origin,
             a.score, a.band, a.duration_sec,
-            q.number, g.type, q.prompt, r.user_answer, q.answer_json, r.is_correct, r.time_spent,
+            q.number, p.title AS passage_title, q.prompt, r.user_answer, q.answer_json, r.is_correct, r.time_spent,
             EXISTS (SELECT 1 FROM question_flag f WHERE f.question_id = q.id) AS flagged
        FROM response r
        JOIN attempt a ON a.id = r.attempt_id
        JOIN test t ON t.id = a.test_id
        JOIN question q ON q.id = r.question_id
        JOIN question_group g ON g.id = q.group_id
+       JOIN passage p ON p.id = g.passage_id
       ORDER BY a.id, q.number`,
   );
-  const header = ["풀이 번호", "날짜", "세트", "영역", "모듈", "출처", "점수", "Band", "풀이 시간(초)", "문항", "유형", "문제", "내 답", "정답", "정오", "문항 시간(초)", "신고"];
+  const header = ["풀이 번호", "날짜", "세트", "영역", "출처", "맞힌 수", "예상 점수", "풀이 시간(초)", "문항", "파트", "문제", "내 답", "정답", "정오", "문항 시간(초)", "신고"];
   const body = rows.map((r) => [
     r.attempt_id,
     r.started_at,
     r.title,
-    r.kind,
-    r.module ?? "",
-    r.ai ? "AI 생성" : "수집·가져옴",
+    KIND_LABEL[r.kind],
+    r.origin ? ORIGIN_LABEL[r.origin] : "",
     r.score,
     r.band,
     r.duration_sec,
     r.number,
-    TYPE_LABELS[r.type] ?? r.type,
+    partOfTitle(r.passage_title) ?? "",
     r.prompt ?? "",
     r.user_answer ?? "",
     keyText(r.answer_json),
@@ -85,35 +85,6 @@ export async function exportResponsesCsv(): Promise<string | null> {
     r.flagged ? "신고" : "",
   ]);
   return writeCsv(`toeicer-responses-${stamp()}`, toCsv([header, ...body]));
-}
-
-/** Every writing or speaking entry with its task, length, time and AI band. */
-export async function exportEntriesCsv(): Promise<string | null> {
-  const db = await getDb();
-  const rows = await db.select<
-    {
-      id: number;
-      created_at: string;
-      title: string;
-      kind: string;
-      module: string | null;
-      task: string | null;
-      word_count: number;
-      duration_sec: number | null;
-      band: number | null;
-      model: string | null;
-    }[]
-  >(
-    `SELECT e.id, e.created_at, t.title, t.kind, t.module, p.title AS task, e.word_count, e.duration_sec, f.band, f.model
-       FROM practice_entry e
-       JOIN passage p ON p.id = e.passage_id
-       JOIN test t ON t.id = p.test_id
-       LEFT JOIN ai_feedback f ON f.entry_id = e.id
-      ORDER BY e.id`,
-  );
-  const header = ["기록 번호", "날짜", "세트", "영역", "모듈", "과제", "단어 수", "시간(초)", "AI 평가 Band", "평가 모델"];
-  const body = rows.map((r) => [r.id, r.created_at, r.title, r.kind, r.module ?? "", r.task ?? "", r.word_count, r.duration_sec, r.band, r.model ?? ""]);
-  return writeCsv(`toeicer-entries-${stamp()}`, toCsv([header, ...body]));
 }
 
 /** The accepted answers as one cell: "A | B" for alternatives. */

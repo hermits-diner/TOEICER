@@ -6,29 +6,31 @@ const { explainPrompt, parseExplanation } = await import("./explain");
 
 const ctx = {
   kind: "reading" as const,
-  passageTitle: "Bees on the Rooftops",
-  passageText: "Hives in Paris produced more honey than rural ones.",
-  type: "tfng" as const,
-  instructions: "Choose TRUE, FALSE or NOT GIVEN.",
-  options: [],
-  number: 8,
-  prompt: "City hives produced less honey than rural ones.",
-  answer: ["FALSE"],
+  passageTitle: "Part 7 · Single 1 (Email)",
+  passageText: "The office will move to the fifth floor on May 3.",
+  type: "mcq" as const,
+  instructions: null,
+  options: ["The office is moving.", "A new manager was hired.", "The building will close.", "Parking fees will rise."].map((text, i) => ({ key: "ABCD"[i], text })),
+  number: 147,
+  prompt: "What is the purpose of the email?",
+  answer: ["A"],
 };
 
 describe("explainPrompt", () => {
   it("includes the key facts and the passage", () => {
-    const p = explainPrompt(ctx, "NOT GIVEN");
-    expect(p).toContain("Question 8: City hives produced less honey");
-    expect(p).toContain("Correct answer: FALSE");
-    expect(p).toContain("Learner's answer: NOT GIVEN");
-    expect(p).toContain('<passage title="Bees on the Rooftops">');
+    const p = explainPrompt(ctx, "C");
+    expect(p).toContain("TOEIC Reading · Part 7 · printed choices");
+    expect(p).toContain("Question 147: What is the purpose of the email?");
+    expect(p).toContain("Correct answer: A");
+    expect(p).toContain("Learner's answer: C");
+    expect(p).toContain("Options:\nA. The office is moving.");
+    expect(p).toContain('<passage title="Part 7 · Single 1 (Email)">');
   });
   it("marks blanks and missing passages", () => {
-    const p = explainPrompt({ ...ctx, passageText: "", options: [{ key: "A", text: "x" }] }, "  ");
+    const p = explainPrompt({ ...ctx, kind: "listening", type: "lmcq", passageTitle: null, passageText: "" }, "  ");
+    expect(p).toContain("TOEIC Listening · choices heard, not printed");
     expect(p).toContain("Learner's answer: (blank)");
-    expect(p).toContain("No passage or transcript text");
-    expect(p).toContain("Options:\nA. x");
+    expect(p).toContain("No text or script");
   });
 });
 

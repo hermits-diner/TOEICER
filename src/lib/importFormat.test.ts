@@ -1,89 +1,74 @@
 import { describe, expect, it } from "vitest";
-import { escapeHtml, parseImportText, passageToHtml, validateImport } from "./importFormat";
-import { sampleTest } from "./sampleTest";
+import { escapeHtml, passageToHtml, validateImport } from "./importFormat";
+import { toeicSampleTests } from "./toeicSamples";
+
+const opts = (n: number) => ["A", "B", "C", "D"].slice(0, n).map((key, i) => ({ key, text: `w${i}` }));
+const IMG = "img-0123456789abcdef0123456789abcdef.png";
+const AUD = "aud-0123456789abcdef0123456789abcdef.mp3";
 
 describe("validateImport", () => {
-  it("accepts the bundled sample", () => {
-    const r = validateImport(sampleTest);
-    expect(r.errors).toEqual([]);
-    expect(r.warnings).toEqual([]);
-    expect(r.test?.passages[0].groups).toHaveLength(4);
+  it("accepts the built-in sets", () => {
+    for (const t of toeicSampleTests()) expect(validateImport(t).errors, t.title).toEqual([]);
   });
-
-  it("canonicalises TFNG answers and accepts a single string answer", () => {
-    const r = validateImport({
-      title: "t",
-      passages: [{ body: "x", groups: [{ type: "tfng", questions: [{ number: 1, answer: "ng" }] }] }],
+  it("takes a Part 1 photo with its recording, a three-choice Part 2 and a Part 5 without text", () => {
+    const listening = validateImport({
+      title: "LC",
+      kind: "listening",
+      passages: [
+        { title: "Part 1 · Photograph 1", audio: AUD, groups: [{ type: "lmcq", image: IMG, questions: [{ number: 1, options: opts(4), answer: "c" }] }] },
+        { title: "Part 2 · 2–2", body: "Speaker: …", groups: [{ type: "lmcq", questions: [{ number: 2, options: opts(3), answer: ["B"] }] }] },
+      ],
     });
-    expect(r.errors).toEqual([]);
-    expect(r.test?.passages[0].groups[0].questions[0].answer).toEqual(["NOT GIVEN"]);
-    expect(r.test?.kind).toBe("reading");
-    expect(r.test?.module).toBe("academic");
+    expect(listening.errors).toEqual([]);
+    expect(listening.test?.passages[0].groups[0]).toMatchObject({ image: IMG, questions: [{ answer: ["C"] }] });
+    const reading = validateImport({
+      title: "RC",
+      kind: "reading",
+      passages: [{ title: "Part 5 · Incomplete Sentences", groups: [{ type: "mcq", questions: [{ number: 101, options: opts(4), answer: "A" }] }] }],
+    });
+    expect(reading.errors).toEqual([]);
   });
-
-  it("reports missing pieces with paths", () => {
+  it("refuses what the TOEIC paper does not have", () => {
     const r = validateImport({
       title: "",
-      passages: [{ groups: [{ type: "mcq", questions: [{ number: 1, answer: "A" }] }] }],
+      kind: "listening",
+      passages: [
+        { title: "Part 2 · x", body: "s", groups: [{ type: "lmcq", questions: [{ number: 1, options: opts(4), answer: "A" }] }] },
+        { title: "Part 3 · x", body: "s", groups: [{ type: "mcq", questions: [{ number: 2, options: opts(4), answer: "E" }] }] },
+        { title: "Part 3 · y", body: "s", groups: [{ type: "tfng", questions: [{ number: 3, answer: "TRUE" }] }] },
+        { title: "Part 6 · Memo", body: "s", groups: [{ type: "mcq", questions: [{ number: 4, options: opts(4), answer: "A" }] }] },
+        { title: "Section 1", body: "s", groups: [{ type: "mcq", questions: [{ number: 5, options: opts(4), answer: "A" }] }] },
+        { title: "Part 4 · Talk 1", groups: [{ type: "mcq", questions: [{ number: 6, options: opts(4), answer: "A" }] }] },
+        { title: "Part 4 · Talk 2", audio: "https://example.org/a.mp3", body: "s", groups: [{ type: "mcq", questions: [{ number: 7, options: opts(4), answer: "A" }] }] },
+      ],
     });
     expect(r.test).toBeNull();
-    expect(r.errors).toContain("title이 필요합니다.");
-    expect(r.errors.some((e) => e.startsWith("passages[0]: body"))).toBe(true);
-    expect(r.errors.some((e) => e.includes("선택지(options)가 필요합니다"))).toBe(true);
+    expect(r.errors).toEqual([
+      "제목이 필요합니다.",
+      "1번: Part 2 문항의 선택지는 (A)–(C) 3개여야 합니다.",
+      "2번: 정답은 (A)–(D) 중 하나여야 합니다.",
+      "passages[2].groups[0]: Part 3에는 선택지가 인쇄된 문항만 들어갈 수 있습니다.",
+      "passages[3]: Part 6는 Listening 세트에 들어갈 수 없습니다.",
+      'passages[4]: 제목이 "Part 1"–"Part 7"로 시작해야 합니다.',
+      "passages[5]: 음성도 스크립트도 없습니다.",
+      "passages[6]: 음성은 보관된 음성 파일이어야 합니다.",
+    ]);
+    expect(validateImport({ title: "t", kind: "writing", passages: [] }).errors).toEqual(['kind는 "listening" 또는 "reading"이어야 합니다.']);
   });
-
-  it("rejects duplicate numbers and warns about gaps", () => {
-    const q = (n: number) => ({ number: n, answer: "x" });
-    const r = validateImport({
-      title: "t",
-      passages: [{ body: "x", groups: [{ type: "fill", questions: [q(1), q(1), q(3)] }] }],
-    });
+  it("flags duplicate numbers and warns about gaps", () => {
+    const q = (n: number) => ({ number: n, options: opts(4), answer: "A" });
+    const r = validateImport({ title: "t", kind: "reading", passages: [{ title: "Part 7 · Email", body: "x", groups: [{ type: "mcq", questions: [q(1), q(1), q(3)] }] }] });
     expect(r.errors).toContain("문항 번호가 중복됩니다: 1");
     expect(r.warnings[0]).toContain("연속되지 않습니다");
-  });
-
-  it("reports JSON syntax errors", () => {
-    expect(parseImportText("{oops").errors[0]).toMatch(/^JSON 구문 오류/);
   });
 });
 
 describe("passageToHtml", () => {
-  it("escapes source text", () => {
-    expect(escapeHtml(`<b>"&'`)).toBe("&lt;b&gt;&quot;&amp;&#39;");
-    const html = passageToHtml({ body: "<script>x</script>\n\nSecond", groups: [] });
-    expect(html).not.toContain("<script>");
-    expect(html.match(/<p>/g)).toHaveLength(2);
-  });
-  it("renders paragraph labels", () => {
-    expect(passageToHtml({ paragraphs: [{ label: "A", text: "Hi" }], groups: [] })).toBe(
-      '<p><span class="para-label">A</span>Hi</p>',
+  it("escapes the text and keeps paragraphs and line breaks", () => {
+    expect(passageToHtml({ body: "Dear <b>Ms. Lee</b> & team,\nThanks.\n\n---(131)---", groups: [] })).toBe(
+      "<p>Dear &lt;b&gt;Ms. Lee&lt;/b&gt; &amp; team,<br>Thanks.</p>\n<p>---(131)---</p>",
     );
-  });
-  it("embeds archived pictures and leaves a description for the others", () => {
-    const name = "img-0123456789abcdef0123456789abcdef.png";
-    const paragraphs = [
-      { text: 'A "map"', image: name },
-      { text: "A chart", image: "https://example.org/chart.png" },
-      { text: "", image: "https://example.org/dot.png" },
-    ];
-    expect(passageToHtml({ paragraphs, groups: [] }, { [name]: "data:image/png;base64,AAAA" })).toBe(
-      '<figure><img src="data:image/png;base64,AAAA" alt="A &quot;map&quot;" style="max-width:100%"></figure>\n<p>[A chart]</p>',
-    );
-  });
-});
-
-describe("pictures in the import format", () => {
-  const group = { type: "fill", questions: [{ number: 1, answer: "x" }] };
-  it("keeps picture paragraphs and group pictures, and warns about uncollected ones", () => {
-    const name = "img-0123456789abcdef0123456789abcdef.png";
-    const ok = validateImport({ title: "t", passages: [{ paragraphs: [{ text: "Map", image: name }, "Text"], groups: [{ ...group, image: name }] }] });
-    expect(ok.errors).toEqual([]);
-    expect(ok.warnings).toEqual([]);
-    expect(ok.test?.passages[0].paragraphs?.[0]).toEqual({ text: "Map", image: name });
-    expect(ok.test?.passages[0].groups[0].image).toBe(name);
-
-    const loose = validateImport({ title: "t", passages: [{ paragraphs: [{ image: "https://example.org/a.png" }, "Text"], groups: [group] }] });
-    expect(loose.errors).toEqual([]);
-    expect(loose.warnings).toEqual(["passages[0]: 받지 못한 그림은 저장할 때 빠집니다."]);
+    expect(passageToHtml({ paragraphs: [{ label: "A", text: "Hi" }], groups: [] })).toBe('<p><span class="para-label">A</span>Hi</p>');
+    expect(escapeHtml(`"'`)).toBe("&quot;&#39;");
   });
 });

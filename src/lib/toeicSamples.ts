@@ -153,7 +153,7 @@ const part7Passage: ImportPassage = {
 
 export function toeicSampleTests(): ImportTest[] {
   return [
-    { title: "샘플 · Listening (Part 2–4)", kind: "listening", module: "academic", passages: [part2Passage, part3a, part3b, part4] },
-    { title: "샘플 · Reading (Part 5–7)", kind: "reading", module: "academic", passages: [part5Passage, part6Passage, part7Passage] },
+    { title: "샘플 · Listening (Part 2–4)", kind: "listening", passages: [part2Passage, part3a, part3b, part4] },
+    { title: "샘플 · Reading (Part 5–7)", kind: "reading", passages: [part5Passage, part6Passage, part7Passage] },
   ];
 }

@@ -184,23 +184,11 @@ pub(crate) async fn wav_bytes_to_mp3(app: &tauri::AppHandle, wav: &[u8]) -> Resu
     Ok(strip_id3v2(&mp3).to_vec())
 }
 
-/// Converts an archived WAV to MP3 in the archive; returns the MP3's archive name. An MP3 name passes through.
-#[tauri::command]
-pub async fn audio_to_mp3(app: tauri::AppHandle, name: String) -> Result<String, String> {
-    if name.ends_with(".mp3") {
-        return Ok(name);
-    }
-    let (path, _) = crate::crawler::archived_audio(&app, &name)?;
-    let wav = std::fs::read(&path).map_err(|_| "음성 파일을 찾을 수 없습니다.".to_string())?;
-    let mp3 = wav_bytes_to_mp3(&app, &wav).await?;
-    crate::crawler::archive_audio(&app, &mp3)
-}
-
 /// Saves an archived recording to `dest`; a WAV becomes MP3 unless `dest` ends with .wav. MP3s go out without an
-/// ID3 tag, so recordings archived before 0.11.11 load in other programs too.
+/// ID3 tag, so they load in every player.
 #[tauri::command]
 pub async fn save_audio_as(app: tauri::AppHandle, name: String, dest: String) -> Result<u64, String> {
-    let (path, _) = crate::crawler::archived_audio(&app, &name)?;
+    let (path, _) = crate::media::archived(&app, &name, "aud")?;
     let bytes = std::fs::read(&path).map_err(|_| "음성 파일을 찾을 수 없습니다.".to_string())?;
     let dest_path = std::path::PathBuf::from(&dest);
     let out = if dest.to_lowercase().ends_with(".wav") {

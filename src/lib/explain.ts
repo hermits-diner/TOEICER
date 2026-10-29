@@ -70,20 +70,20 @@ export async function loadQuestionContext(questionId: number): Promise<QuestionC
 }
 
 export const EXPLAIN_SYSTEM = `You are an experienced ${BRAND.examName} teacher explaining a wrong answer to a Korean learner.
-Find the exact place in the passage (or listening transcript) the correct answer comes from and explain it.
+Find the exact place in the text (or, for Listening, the script) the correct answer comes from and explain it.
 Reply with a single JSON object and nothing else:
 {"evidence": string, "paraphrases": [{"question": string, "passage": string}], "explanation": string, "whyNot": string, "tip": string}
 - evidence: the sentence(s) from the passage that decide the answer, quoted exactly in English. Use "" if no passage text is given.
 - paraphrases: 1-4 pairs showing how words in the question are expressed differently in the passage (English).
-- explanation: in Korean (polite 합니다체), why the correct answer is right. For TRUE/FALSE/NOT GIVEN or YES/NO/NOT GIVEN, make the FALSE-versus-NOT GIVEN reasoning explicit.
+- explanation: in Korean (polite 합니다체), why the correct answer is right. For a Part 5 or 6 blank, name the grammar point or the collocation that decides it.
 - whyNot: in Korean, why the learner's answer is wrong (or that it was left blank).
-- tip: in Korean, one short strategy for this question type.
+- tip: in Korean, one short strategy for this kind of TOEIC question.
 Never invent passage text. Trust the given answer key.`;
 
 export function explainPrompt(c: QuestionContext, userAnswer: string): string {
   const options = c.options.length ? c.options.map((o) => `${o.key}. ${o.text}`).join("\n") : "";
   return [
-    `${BRAND.examName} ${c.kind === "listening" ? "Listening" : "Reading"} · question type: ${c.type}`,
+    `${BRAND.examName} ${c.kind === "listening" ? "Listening" : "Reading"}${c.passageTitle ? ` · ${c.passageTitle.split(" · ")[0]}` : ""} · ${c.type === "lmcq" ? "choices heard, not printed" : "printed choices"}`,
     c.instructions ? `Instructions: ${c.instructions}` : "",
     options ? `Options:\n${options}` : "",
     `Question ${c.number}: ${c.prompt ?? "(see instructions)"}`,
@@ -92,7 +92,7 @@ export function explainPrompt(c: QuestionContext, userAnswer: string): string {
     "",
     c.passageText
       ? `<passage${c.passageTitle ? ` title="${c.passageTitle}"` : ""}>\n${c.passageText}\n</passage>`
-      : "(No passage or transcript text is available.)",
+      : "(No text or script is available.)",
   ]
     .filter((l) => l !== "")
     .join("\n");

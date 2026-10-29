@@ -3,22 +3,13 @@
  * API at every start and kept in localStorage, so the pickers show the live lists and a chosen model that has
  * disappeared is flagged. Claude Code has no listing; its size aliases are suggested as they are.
  */
-import {
-  GEMINI_SPEECH_MODELS,
-  GEMINI_TTS_MODELS,
-  geminiKeyStored,
-  listGeminiModels,
-  listModels,
-  PROVIDERS,
-  SUGGESTED_MODELS,
-  type AiSettings,
-  type ProviderId,
-} from "./ai";
+import { geminiKeyStored, listGeminiModels, listModels, PROVIDERS, type AiSettings, type ProviderId } from "./ai";
 
 export interface Catalog {
   /** Live list per CLI that has one. */
   lists: Partial<Record<ProviderId, string[]>>;
-  gemini?: { speech: string[]; tts: string[] };
+  /** The Gemini TTS and image models the key can use (Studio). */
+  gemini?: { tts: string[]; image: string[] };
   /** Epoch ms of the last successful refresh; 0 when never. */
   checkedAt: number;
 }
@@ -51,12 +42,10 @@ const byVersionDesc = (a: string, b: string) => {
   return v(b) - v(a) || tier(a) - tier(b);
 };
 
-/** Speech models hear a recording (Gemini text models); TTS models read a script. Embedding, image and tutoring models are neither. */
-export function splitGeminiModels(names: string[]): { speech: string[]; tts: string[] } {
+/** The Gemini models the app can use: TTS models read a listening script, image models draw a Part 1 photograph. */
+export function splitGeminiModels(names: string[]): { tts: string[]; image: string[] } {
   const gemini = names.filter((n) => /^gemini-/i.test(n));
-  const tts = gemini.filter((n) => /tts/i.test(n)).sort(byVersionDesc);
-  const speech = gemini.filter((n) => !/tts|image|embedding|live|audio/i.test(n)).sort(byVersionDesc);
-  return { speech, tts };
+  return { tts: gemini.filter((n) => /tts/i.test(n)).sort(byVersionDesc), image: gemini.filter((n) => /image/i.test(n)).sort(byVersionDesc) };
 }
 
 /** Asks every provider that can list; a failure keeps that provider's earlier list. */
@@ -74,7 +63,7 @@ export async function refreshCatalog(s: AiSettings): Promise<Catalog> {
   try {
     if (await geminiKeyStored()) {
       const split = splitGeminiModels(await listGeminiModels());
-      if (split.speech.length || split.tts.length) c.gemini = split;
+      if (split.tts.length || split.image.length) c.gemini = split;
     }
   } catch {
     // Same: keep what we had.
@@ -95,18 +84,8 @@ export function storeList(provider: ProviderId, ids: string[]): void {
 /** Stores a Gemini list the voice panel fetched. */
 export function storeGemini(names: string[]): void {
   const split = splitGeminiModels(names);
-  if (!split.speech.length && !split.tts.length) return;
+  if (!split.tts.length && !split.image.length) return;
   const c = loadCatalog();
   c.gemini = split;
   save(c);
-}
-
-export const modelOptions = (provider: ProviderId): string[] => loadCatalog().lists[provider] ?? SUGGESTED_MODELS[provider];
-export const speechOptions = (): string[] => loadCatalog().gemini?.speech ?? GEMINI_SPEECH_MODELS;
-export const ttsOptions = (): string[] => loadCatalog().gemini?.tts ?? GEMINI_TTS_MODELS;
-
-/** True when a live list exists for the provider and the chosen (non-empty) model is not in it. */
-export function isStale(provider: ProviderId, model: string): boolean {
-  const live = loadCatalog().lists[provider];
-  return !!live && !!model.trim() && !live.includes(model.trim());
 }

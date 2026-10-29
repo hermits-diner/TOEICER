@@ -1,11 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
-import { AlertTriangle, Check, FileUp, Globe, Loader2, RefreshCw, ShieldCheck, Sparkles, Trash2 } from "lucide-react";
+import { AlertTriangle, Check, FileUp, Globe, Loader2, Play, RefreshCw, ShieldCheck, Sparkles, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { errorText, geminiKeyStored, loadAiSettings, PROVIDERS } from "../lib/ai";
 import {
   addReferenceDoc,
-  aiSourceId,
-  createExam,
   deleteReferenceDoc,
   listReferenceDocs,
   referenceMaterial,
@@ -19,13 +17,13 @@ import { loadTrendBrief, officialBrief, trendAgeDays, trendSection, type TrendBr
 import type { Target } from "../lib/toeicSpec";
 import Hint from "./Hint";
 
-const UNITS: { id: ToeicUnit; section: "listening" | "reading"; note: string }[] = [
-  { id: "p12", section: "listening", note: "사진 묘사 6 · 질의응답 25" },
-  { id: "p3", section: "listening", note: "짧은 대화 13세트 · 39문항" },
-  { id: "p4", section: "listening", note: "짧은 담화 10세트 · 30문항" },
-  { id: "p56", section: "reading", note: "단문 빈칸 30 · 장문 빈칸 4지문 16문항" },
-  { id: "p7s", section: "reading", note: "단일 지문 10세트 · 29문항" },
-  { id: "p7m", section: "reading", note: "이중·삼중 지문 5세트 · 25문항" },
+const UNITS: { id: ToeicUnit; note: string }[] = [
+  { id: "p12", note: "사진 묘사 6 · 질의응답 25" },
+  { id: "p3", note: "짧은 대화 13세트 · 39문항" },
+  { id: "p4", note: "짧은 담화 10세트 · 30문항" },
+  { id: "p56", note: "단문 빈칸 30 · 장문 빈칸 4지문 16문항" },
+  { id: "p7s", note: "단일 지문 10세트 · 29문항" },
+  { id: "p7m", note: "이중·삼중 지문 5세트 · 25문항" },
 ];
 
 const TARGETS: { id: Target; label: string; note: string }[] = [
@@ -46,20 +44,12 @@ const STEP_LABEL: Record<ToeicStep, string> = {
   done: "완료",
 };
 
-/** "AI로 만들기" for TOEICER: a whole Listening and Reading test (or chosen parts) written and checked by the signed-in CLI. */
-export default function ToeicGeneratePanel({
-  initialSection,
-  onCreated,
-  onCreatedExam,
-}: {
-  /** From a list screen's "AI로 새 문제": start with only that section's parts chosen. */
-  initialSection?: string;
-  onCreated: (testId: number) => void;
-  onCreatedExam?: (examId: number) => void;
-}) {
-  const [units, setUnits] = useState<ToeicUnit[]>(
-    UNITS.filter((u) => !initialSection || u.section === initialSection).map((u) => u.id),
-  );
+/**
+ * Studio › AI로 만들기: a whole Listening and Reading test (or chosen parts) written and checked by the signed-in CLI.
+ * A full test is saved as two sets, Listening (1–100) and Reading (101–200), each scored on its own 5–495 scale.
+ */
+export default function ToeicGeneratePanel({ onCreated }: { onCreated: (testId: number) => void }) {
+  const [units, setUnits] = useState<ToeicUnit[]>(UNITS.map((u) => u.id));
   const [target, setTarget] = useState<Target>("750");
   const [topics, setTopics] = useState("");
   const [useRefs, setUseRefs] = useState(true);
@@ -70,6 +60,8 @@ export default function ToeicGeneratePanel({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reports, setReports] = useState<ToeicGenReport[] | null>(null);
+  /** Both sets of a full test, offered side by side once saved. */
+  const [saved, setSaved] = useState<{ id: number; kind: "listening" | "reading" }[]>([]);
   const [brief, setBrief] = useState<TrendBrief | null>(loadTrendBrief());
   const [checking, setChecking] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -123,6 +115,7 @@ export default function ToeicGeneratePanel({
     setBusy(true);
     setError(null);
     setReports(null);
+    setSaved([]);
     setProgress({});
     try {
       const references = useRefs ? (await referenceMaterial()).text : "";
@@ -135,11 +128,10 @@ export default function ToeicGeneratePanel({
         { units, target, topics, references, speech: media, images: media && units.includes("p12"), trend },
         (unit, step) => setProgress((p) => ({ ...p, [unit]: step })),
       );
-      const sourceId = await aiSourceId();
       const band = Number(target);
-      const ids: { testId: number; skill: (typeof result.tests)[number]["kind"]; ord: number }[] = [];
-      for (const [i, t] of result.tests.entries()) {
-        const id = await saveImportedTest(t, { sourceId, rawPath: null });
+      const ids: { id: number; kind: (typeof result.tests)[number]["kind"] }[] = [];
+      for (const t of result.tests) {
+        const id = await saveImportedTest(t, "ai");
         await saveGenMeta(id, {
           topic: topics.trim() || "(AI가 고름)",
           band,
@@ -156,16 +148,11 @@ export default function ToeicGeneratePanel({
               .map((r) => ({ unit: r.unit, checker: r.checker, cross: r.cross, line: reportLine(r) })),
           },
         });
-        ids.push({ testId: id, skill: t.kind, ord: i });
+        ids.push({ id, kind: t.kind });
       }
       setReports(result.reports);
-      if (ids.length > 1) {
-        const stamp = new Date().toISOString().slice(0, 16).replace("T", " ");
-        const examId = await createExam(`AI · TOEIC 모의고사 ${stamp}`, "academic", band, ids);
-        onCreatedExam?.(examId);
-      } else if (ids[0]) {
-        onCreated(ids[0].testId);
-      }
+      if (ids.length === 1) onCreated(ids[0].id);
+      else setSaved(ids);
     } catch (e) {
       setError(errorText(e));
     } finally {
@@ -182,7 +169,7 @@ export default function ToeicGeneratePanel({
       <div className="gen-head">
         <span className="muted">
           {provider} · {model}
-          <Hint text="설정 › AI에서 고른 구독 CLI가 TOEIC Listening & Reading 형식의 오리지널 문제를 새로 씁니다. 만든 세트는 'AI' 표시와 함께 라이브러리에 저장됩니다." />
+          <Hint text="설정 › AI에서 고른 구독 CLI가 TOEIC Listening & Reading 형식의 오리지널 문제를 새로 씁니다. 만든 세트는 'AI 생성' 표시와 검증 기록과 함께 라이브러리에 저장되고, 세트 파일로 내보낼 수 있습니다." />
         </span>
       </div>
 
@@ -196,7 +183,7 @@ export default function ToeicGeneratePanel({
               </button>
             ))}
           </div>
-          <span className="muted small">모든 파트를 고르면 200문항 한 회분(Listening 1–100, Reading 101–200)을 시험 한 부로 묶어 저장합니다.</span>
+          <span className="muted small">모든 파트를 고르면 200문항 한 회분을 Listening(1–100)과 Reading(101–200) 두 세트로 저장합니다.</span>
         </div>
 
         <label>
@@ -226,7 +213,7 @@ export default function ToeicGeneratePanel({
             <label className="check">
               <input type="checkbox" checked={useRefs} disabled={busy} onChange={(e) => setUseRefs(e.target.checked)} /> 참고자료로 형식·난이도 맞추기
             </label>
-            <Hint text="ETS 공식 샘플이나 직접 구매한 교재처럼 가지고 있는 공식 자료를 넣어 두면, AI가 형식과 난이도의 기준으로 참고합니다. 자료는 이 PC에만 저장되고, 문장을 베끼지 않고 새 문제를 씁니다. 수집·가져온 세트도 함께 참고합니다." />
+            <Hint text="ETS 공식 샘플이나 직접 구매한 교재처럼 가지고 있는 공식 자료를 넣어 두면, AI가 형식과 난이도의 기준으로 참고합니다. 자료는 이 PC에만 저장되고, 문장을 베끼지 않고 새 문제를 씁니다. 붙여넣기로 넣은 내 자료도 함께 참고합니다." />
             <span className="spacer" />
             <button className="btn small" disabled={busy} onClick={() => fileRef.current?.click()}>
               <FileUp size={13} /> 공식 자료 추가 (PDF·텍스트)
@@ -297,7 +284,7 @@ export default function ToeicGeneratePanel({
           AI 약 {calls}회{needsVoice && geminiKey ? " · Gemini 사진·음성" : ""} · {units.length * 2}–{units.length * 5}분
         </span>
         {needsVoice && geminiKey === false && (
-          <span className="warning">Gemini 키가 없어 Part 1 사진은 장면 설명으로, 음성은 Windows 음성으로 대신합니다 (설정 › AI › 음성에서 키를 넣으면 실제 사진·음성).</span>
+          <span className="warning">Gemini 키가 없어 Part 1 사진은 장면 설명으로, 음성은 Windows 음성으로 대신합니다 (설정 › AI › 음성·사진에서 키를 넣으면 실제 사진·음성).</span>
         )}
       </div>
 
@@ -331,6 +318,16 @@ export default function ToeicGeneratePanel({
               {UNIT_LABEL[r.unit]}: {reportLine(r)}
               {r.notes.length ? ` · 기준 미달: ${r.notes.join(" · ")}` : " · 형식 기준 통과"}
             </p>
+          ))}
+        </div>
+      )}
+      {saved.length > 1 && (
+        <div className="accent-row">
+          <span className="success">두 세트를 저장했습니다.</span>
+          {saved.map((t) => (
+            <button key={t.id} className="btn small" onClick={() => onCreated(t.id)}>
+              <Play size={13} /> {t.kind === "listening" ? "Listening 풀기" : "Reading 풀기"}
+            </button>
           ))}
         </div>
       )}

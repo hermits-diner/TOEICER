@@ -1,22 +1,21 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { BRAND, formatScore } from "../lib/brand";
-import { BookOpen, ChevronRight, Headphones, Mic, PenLine, Settings2 } from "lucide-react";
+import { BookOpen, ChevronRight, FolderOpen, Headphones, Settings2, Sparkles } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { PageId } from "../components/Sidebar";
 import { daysUntil, getSetting, setSetting } from "../lib/appSettings";
 import { PHOTOS } from "../lib/photos";
 import { loadOverview, loadRecentTests, loadWeekSeconds, loadWrongItems, type RecentTest } from "../lib/stats";
 import { countDueWords } from "../lib/vocab";
+import { STUDIO } from "../lib/edition";
 
 const KIND = {
   reading: { label: "Reading", icon: BookOpen },
   listening: { label: "Listening", icon: Headphones },
-  writing: { label: "Writing", icon: PenLine },
-  speaking: { label: "Speaking", icon: Mic },
 } as const;
 
 /** Goal choices: a TOEIC section score. */
-const BANDS = BRAND.goals;
+const GOALS = BRAND.goals;
 
 function greeting(h: number): string {
   if (h < 5) return "늦은 시간까지 수고 많으십니다";
@@ -50,19 +49,19 @@ export default function Home({ showPhotos, onNavigate, onOpenTest, onOpenReview 
   const [examDate, setExamDate] = useState("");
   const [target, setTarget] = useState("");
   const [editing, setEditing] = useState(false);
-  const [recentBand, setRecentBand] = useState<number | null>(null);
+  const [recentScore, setRecentScore] = useState<number | null>(null);
   const [due, setDue] = useState<number | null>(null);
   const [dueWords, setDueWords] = useState<number | null>(null);
   const [week, setWeek] = useState<number | null>(null);
   const [recent, setRecent] = useState<RecentTest[]>([]);
 
   useEffect(() => {
-    void Promise.all([getSetting("home_photo"), getSetting("exam_date"), getSetting("target_band")]).then(([p, d, t]) => {
+    void Promise.all([getSetting("home_photo"), getSetting("exam_date"), getSetting("target_score")]).then(([p, d, t]) => {
       setUserPhoto(p);
       setExamDate(d ?? "");
       setTarget(t ?? "");
     });
-    void loadOverview().then((o) => setRecentBand(o.recentBand));
+    void loadOverview().then((o) => setRecentScore(o.recentScore));
     void loadWrongItems().then((w) => setDue(w.length));
     void countDueWords().then(setDueWords);
     void loadWeekSeconds().then(setWeek);
@@ -71,14 +70,14 @@ export default function Home({ showPhotos, onNavigate, onOpenTest, onOpenReview 
 
   const saveGoal = async () => {
     await setSetting("exam_date", examDate || null);
-    await setSetting("target_band", target || null);
+    await setSetting("target_score", target || null);
     setEditing(false);
   };
 
   const dday = examDate ? daysUntil(examDate) : null;
   const now = new Date();
   const photo = showPhotos ? (userPhoto ?? PHOTOS.home.src) : null;
-  const gap = recentBand !== null && target ? +target - recentBand : null;
+  const gap = recentScore !== null && target ? +target - recentScore : null;
 
   return (
     <div className="content home">
@@ -113,7 +112,7 @@ export default function Home({ showPhotos, onNavigate, onOpenTest, onOpenReview 
             목표 {BRAND.scoreName} (영역별)
             <select className="field" value={target} onChange={(e) => setTarget(e.target.value)}>
               <option value="">정하지 않음</option>
-              {BANDS.map((b) => (
+              {GOALS.map((b) => (
                 <option key={b} value={b}>{b}</option>
               ))}
             </select>
@@ -126,7 +125,7 @@ export default function Home({ showPhotos, onNavigate, onOpenTest, onOpenReview 
       <div className="tiles home-tiles">
         <div className="tile">
           <div className="tile-label">최근 평균 {BRAND.scoreName}</div>
-          <div className="tile-value">{recentBand === null ? "—" : formatScore(recentBand)}</div>
+          <div className="tile-value">{recentScore === null ? "—" : formatScore(recentScore)}</div>
           <div className="tile-note">
             {gap === null ? "Reading·Listening 최근 5회" : gap <= 0 ? "목표에 도달했습니다" : `목표까지 ${formatScore(gap)}`}
           </div>
@@ -169,17 +168,23 @@ export default function Home({ showPhotos, onNavigate, onOpenTest, onOpenReview 
           )}
         </section>
         <section>
-          <h3 className="section-title">영역별 연습</h3>
+          <h3 className="section-title">바로 가기</h3>
           <div className="quick">
-            {(BRAND.sections as readonly (keyof typeof KIND)[]).map((k) => {
-              const Icon = KIND[k].icon;
-              return (
-                <button key={k} className="quick-btn" onClick={() => onNavigate(k)}>
-                  <Icon size={18} />
-                  {KIND[k].label}
-                </button>
-              );
-            })}
+            <button className="quick-btn" onClick={() => onNavigate("library")}>
+              <BookOpen size={18} />
+              문제 세트
+            </button>
+            {STUDIO ? (
+              <button className="quick-btn" onClick={() => onNavigate("import")}>
+                <Sparkles size={18} />
+                AI로 새 회차
+              </button>
+            ) : (
+              <button className="quick-btn" onClick={() => onNavigate("import")}>
+                <FolderOpen size={18} />
+                세트 파일 열기
+              </button>
+            )}
           </div>
         </section>
       </div>

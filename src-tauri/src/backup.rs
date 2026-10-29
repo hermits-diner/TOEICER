@@ -11,11 +11,9 @@ use std::time::SystemTime;
 use serde::Serialize;
 use tauri::{AppHandle, Manager};
 
-const DB: &str = "toeicer.db";
+const DB: &str = "toeic.db";
 const AUTO_KEEP: usize = 7;
 const STAGING: &str = "restore-staging";
-/// Sub-folder of the backup folder that mirrors the user's speaking recordings.
-const RECORDINGS: &str = "녹음";
 const PENDING: &str = "restore-pending";
 
 fn data_dir(app: &AppHandle) -> Result<PathBuf, String> {
@@ -106,31 +104,6 @@ pub fn backup_onedrive_dir() -> Option<String> {
         .find(|p| Path::new(p).is_dir())
 }
 
-/// Copies speaking recordings that are not yet in the backup folder. They cannot be downloaded again,
-/// unlike collected recordings, so the daily backup keeps them. Files are named by content hash.
-#[tauri::command]
-pub fn backup_sync_recordings(app: AppHandle, dir: Option<String>) -> Result<usize, String> {
-    let target = backups_dir(&app, dir.as_deref())?.join(RECORDINGS);
-    sync_recordings(&data_dir(&app)?.join("raw"), &target)
-}
-
-fn sync_recordings(raw: &Path, target: &Path) -> Result<usize, String> {
-    let Ok(entries) = fs::read_dir(raw) else { return Ok(0) };
-    let mut copied = 0;
-    for e in entries.flatten() {
-        let name = e.file_name().to_string_lossy().into_owned();
-        if !(name.starts_with("aud-") && name.ends_with(".wav")) {
-            continue;
-        }
-        fs::create_dir_all(target).map_err(|e| format!("녹음 백업 폴더를 만들 수 없습니다: {e}"))?;
-        let dest = target.join(&name);
-        if !dest.exists() && fs::copy(e.path(), &dest).is_ok() {
-            copied += 1;
-        }
-    }
-    Ok(copied)
-}
-
 fn is_sqlite(path: &Path) -> bool {
     let mut head = [0u8; 16];
     fs::File::open(path)
@@ -206,7 +179,7 @@ pub fn backup_prune_auto(app: AppHandle, dir: Option<String>) -> Result<usize, S
     Ok(removed)
 }
 
-/// Packs a snapshot and the raw archive (originals, pictures, recordings) into `dest`, then deletes the snapshot.
+/// Packs a snapshot and the media archive (listening recordings, Part 1 photographs) into `dest`, then deletes the snapshot.
 #[tauri::command]
 pub async fn backup_write_zip(
     app: AppHandle,
@@ -284,10 +257,6 @@ fn prepare(src: &Path, staging: &Path) -> Result<String, String> {
     let db = staging.join(DB);
     if is_sqlite(src) {
         fs::copy(src, &db).map_err(|e| format!("백업 파일을 복사하지 못했습니다: {e}"))?;
-        // A daily copy carries no recordings; bring back the mirrored ones that sit beside it.
-        if let Some(rec) = src.parent().map(|d| d.join(RECORDINGS)) {
-            sync_recordings(&rec, &staging.join("raw"))?;
-        }
     } else {
         let file = fs::File::open(src).map_err(|e| format!("백업 파일을 열 수 없습니다: {e}"))?;
         let mut zip = zip::ZipArchive::new(file)
@@ -350,7 +319,7 @@ fn apply_pending(dir: &Path) -> Result<bool, String> {
     let staging = dir.join(STAGING);
     let staged = staging.join(DB);
     if is_sqlite(&staged) {
-        for f in [DB, "toeicer.db-wal", "toeicer.db-shm"] {
+        for f in [DB, "toeic.db-wal", "toeic.db-shm"] {
             let _ = fs::remove_file(dir.join(f));
         }
         fs::rename(&staged, dir.join(DB)).map_err(|e| e.to_string())?;
@@ -410,7 +379,7 @@ mod tests {
         let other = tmp("other");
         fs::create_dir_all(other.join("raw")).unwrap();
         fake_db(&other.join(DB), "old");
-        fs::write(other.join("toeicer.db-wal"), b"wal").unwrap();
+        fs::write(other.join("toeic.db-wal"), b"wal").unwrap();
         fs::write(other.join("raw").join("bbb.png"), b"pic").unwrap();
         let staged = prepare(&zip_path, &other.join(STAGING)).unwrap();
         assert!(staged.ends_with(DB));
@@ -418,7 +387,7 @@ mod tests {
         assert!(apply_pending(&other).unwrap());
 
         assert!(fs::read(other.join(DB)).unwrap().ends_with(b"snapshot"));
-        assert!(!other.join("toeicer.db-wal").exists());
+        assert!(!other.join("toeic.db-wal").exists());
         assert_eq!(
             fs::read(other.join("raw").join("aaa.mp3")).unwrap(),
             b"audio"
@@ -426,22 +395,6 @@ mod tests {
         assert_eq!(fs::read(other.join("raw").join("bbb.png")).unwrap(), b"pic");
         assert!(!other.join(STAGING).exists() && !other.join(PENDING).exists());
         assert!(!apply_pending(&other).unwrap());
-    }
-
-    #[test]
-    fn mirrors_recordings_and_restores_them_with_a_daily_copy() {
-        let d = tmp("rec");
-        fs::create_dir_all(d.join("raw")).unwrap();
-        fs::write(d.join("raw").join("aud-1.wav"), b"me").unwrap();
-        fs::write(d.join("raw").join("aud-2.mp3"), b"collected").unwrap();
-        let backups = d.join("backups");
-        assert_eq!(sync_recordings(&d.join("raw"), &backups.join(RECORDINGS)).unwrap(), 1);
-        assert_eq!(sync_recordings(&d.join("raw"), &backups.join(RECORDINGS)).unwrap(), 0);
-
-        fake_db(&backups.join("auto-2026-10-06.db"), "daily");
-        prepare(&backups.join("auto-2026-10-06.db"), &d.join(STAGING)).unwrap();
-        assert_eq!(fs::read(d.join(STAGING).join("raw").join("aud-1.wav")).unwrap(), b"me");
-        assert!(!d.join(STAGING).join("raw").join("aud-2.mp3").exists());
     }
 
     #[test]
@@ -465,7 +418,7 @@ mod tests {
         // A zip whose only database entry tries to escape the staging folder.
         let evil = d.join("evil.zip");
         let mut z = zip::ZipWriter::new(fs::File::create(&evil).unwrap());
-        z.start_file("../toeicer.db", zip::write::SimpleFileOptions::default())
+        z.start_file("../toeic.db", zip::write::SimpleFileOptions::default())
             .unwrap();
         z.write_all(b"SQLite format 3\0x").unwrap();
         z.finish().unwrap();

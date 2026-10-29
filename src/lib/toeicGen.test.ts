@@ -17,7 +17,7 @@ vi.mock("./ai", () => ({
 }));
 vi.mock("./tts", () => ({
   assignGeminiVoices: (s: Record<string, unknown>) => Object.fromEntries(Object.keys(s).map((k) => [k, "Kore"])),
-  geminiSynthesize: vi.fn(async () => ({ name: `aud-${"1".repeat(32)}.mp3`, duration: 1, words: "" })),
+  geminiSynthesize: vi.fn(async () => ({ name: `aud-${"1".repeat(32)}.mp3`, duration: 1 })),
 }));
 const invoke = vi.fn(async () => `img-${"2".repeat(32)}.png`);
 vi.mock("@tauri-apps/api/core", () => ({ invoke }));

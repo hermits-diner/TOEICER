@@ -1,8 +1,8 @@
 import { RefreshCw, Zap } from "lucide-react";
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import Dropdown from "./Dropdown";
 import Hint from "./Hint";
-import VoiceEnginePanel from "./VoiceEnginePanel";
+import { STUDIO } from "../lib/edition";
 import { useCatalog } from "./useCatalog";
 import {
   cliStatus,
@@ -20,6 +20,9 @@ import {
   type ProviderId,
 } from "../lib/ai";
 import { storeList } from "../lib/modelCatalog";
+
+// Gemini (listening speech and Part 1 photographs) is used only by Studio's making tools; a Reader build leaves it out.
+const VoiceEnginePanel = __STUDIO__ ? lazy(() => import("./VoiceEnginePanel")) : null;
 
 type Msg = { kind: "ok" | "error"; text: string } | null;
 
@@ -55,7 +58,7 @@ const LOGIN_HINT: Record<ProviderId, string> = {
 
 const when = (ms: number) => new Date(ms).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
 
-/** Settings › AI: which logged-in CLI writes items and feedback, its model, effort and speed, and the Gemini voice settings below. */
+/** Settings › AI: which logged-in CLI writes items (Studio) and explains wrong answers, with its model, effort and speed; in Studio also the Gemini key for listening media. */
 export default function AiSettingsPanel() {
   const [s, setS] = useState<AiSettings>(loadAiSettings);
   const catalog = useCatalog();
@@ -130,7 +133,7 @@ export default function AiSettingsPanel() {
     <>
       <h3 className="section-title">
         제공사
-        <Hint text="문제 출제와 Writing·Speaking 첨삭에 쓰는 AI입니다. 이 PC에 설치되어 로그인된 CLI를 앱이 실행하므로 API 키 없이 구독 한도를 씁니다. 소리를 다루는 기능은 아래 음성 설정의 Gemini 키를 씁니다." />
+        <Hint text={STUDIO ? "문제 출제·검증과 오답 해설에 쓰는 AI입니다. 이 PC에 설치되어 로그인된 CLI를 앱이 실행하므로 API 키 없이 구독 한도를 씁니다. Listening 음성과 Part 1 사진은 아래 Gemini 키를 씁니다." : "오답 해설과 단어 풀이에 쓰는 AI입니다(선택). 이 PC에 설치되어 로그인된 CLI를 앱이 실행하므로 API 키 없이 구독 한도를 씁니다."} />
       </h3>
       <div className="provider-pick">
         <Dropdown
@@ -266,7 +269,11 @@ export default function AiSettingsPanel() {
       </div>
       {msg && <p className={msg.kind === "ok" ? "success" : "error"}>{msg.text}</p>}
 
-      <VoiceEnginePanel settings={s} onChange={(patch) => update({ ...s, ...patch })} />
+      {VoiceEnginePanel && (
+        <Suspense fallback={null}>
+          <VoiceEnginePanel settings={s} onChange={(patch) => update({ ...s, ...patch })} />
+        </Suspense>
+      )}
     </>
   );
 }

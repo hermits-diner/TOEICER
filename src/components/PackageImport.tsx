@@ -1,12 +1,18 @@
-import { Download, FolderOpen } from "lucide-react";
-import { useState } from "react";
-import { importOpened, openPackage, type OpenedPackage } from "../lib/package";
+import { Download, FolderOpen, ShieldCheck } from "lucide-react";
+import { useEffect, useState } from "react";
+import { errorText } from "../lib/ai";
+import { KIND_LABEL, ORIGIN_LABEL } from "../lib/library";
+import { importOpened, openPackage, PACKAGE_EXT, readPackage, type OpenedPackage } from "../lib/package";
 import Hint from "./Hint";
 
-const KIND: Record<string, string> = { reading: "Reading", listening: "Listening", writing: "Writing", speaking: "Speaking" };
+interface Props {
+  onImported: (testId: number) => void;
+  /** A set file the app was asked to open (double-clicked in Explorer). */
+  path?: string | null;
+}
 
-/** 가져오기 › 세트 파일: reads a shared .toeicset package and saves it to the library. */
-export default function PackageImport({ onImported, onImportedExam }: { onImported: (testId: number) => void; onImportedExam: (examId: number) => void }) {
+/** Reads a set file (.toic) and saves it to the library: picked here, or handed over by a double-click. */
+export default function PackageImport({ onImported, path }: Props) {
   const [opened, setOpened] = useState<OpenedPackage | null>(null);
   const [busy, setBusy] = useState<"open" | "save" | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -18,11 +24,15 @@ export default function PackageImport({ onImported, onImportedExam }: { onImport
     try {
       await job();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(errorText(e));
     } finally {
       setBusy(null);
     }
   };
+
+  useEffect(() => {
+    if (path) void run("open", async () => setOpened(await readPackage(path)));
+  }, [path]);
 
   const pick = () =>
     run("open", async () => {
@@ -35,39 +45,46 @@ export default function PackageImport({ onImported, onImportedExam }: { onImport
       if (!opened) return;
       const r = await importOpened(opened);
       setOpened(null);
-      // Everything was already here: say so before the page changes.
       if (r.reused === opened.tests.length) setNotice("이미 라이브러리에 있는 세트라 새로 저장하지 않고 그대로 엽니다.");
-      if (r.examId !== null) onImportedExam(r.examId);
-      else onImported(r.testIds[0]);
+      onImported(r.testIds[0]);
     });
 
   const m = opened?.manifest;
-  const details = opened
-    ? [
-        m?.exam ? `시험 한 부 · ${opened.tests.map((t) => KIND[t.kind] ?? t.kind).join(" · ")}` : (KIND[opened.tests[0].kind] ?? opened.tests[0].kind),
-        (m?.module ?? opened.tests[0].module) === "general" ? "General Training" : "Academic",
-        `문항 ${m?.tests?.length ? m.tests.reduce((n, t) => n + t.questions, 0) : "?"}개`,
-        m?.author ? `만든 사람 ${m.author}` : "",
-        m?.createdAt ? new Date(m.createdAt).toLocaleDateString() : "",
-        opened.media.length ? `음성·그림 ${opened.media.length}개` : "",
-      ].filter(Boolean)
-    : [];
+  const verification = Array.isArray(m?.verification) ? (m.verification as { line?: string; checker?: string; cross?: boolean }[]) : [];
 
   return (
     <>
       <div className="accent-row wrap">
-        <button className="btn" disabled={busy !== null} onClick={() => void pick()}>
-          <FolderOpen size={14} /> {busy === "open" ? "읽는 중…" : "세트 파일 열기 (.toeicset)"}
+        <button className="btn primary" disabled={busy !== null} onClick={() => void pick()}>
+          <FolderOpen size={14} /> {busy === "open" ? "읽는 중…" : `세트 파일 열기 (.${PACKAGE_EXT})`}
         </button>
         <span className="muted">
-          다른 사용자가 내보낸 세트나 시험 한 부
-          <Hint text="음성과 그림도 함께 들어오고, 이미 있는 세트는 다시 저장하지 않습니다. 내 세트는 목록의 공유 단추로 내보냅니다." />
+          마켓에서 산 세트나 선생님·친구가 보낸 세트
+          <Hint text="파일 탐색기에서 세트 파일을 두 번 눌러도 이 앱에서 열립니다. Listening 음성과 Part 1 사진도 함께 들어옵니다. 마켓에서 산 세트는 구매한 계정 정보가 함께 들어 있습니다." />
         </span>
       </div>
-      {opened && (
+      {opened && m && (
         <div className="task-card">
-          <h3 className="section-title">{m?.title || opened.tests[0].title}</h3>
-          <p className="muted">{details.join(" · ")}</p>
+          <h3 className="section-title">{m.title || opened.tests[0].title}</h3>
+          <p className="muted">
+            {[
+              `${KIND_LABEL[m.kind] ?? m.kind} · 문항 ${m.questions}개`,
+              m.market ? "마켓 구매" : `출처: ${ORIGIN_LABEL[m.origin] ?? m.origin}`,
+              m.author ? `만든 사람 ${m.author}` : "",
+              m.createdAt ? new Date(m.createdAt).toLocaleDateString("ko-KR") : "",
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+          </p>
+          {verification.length > 0 && (
+            <div className="verify-box">
+              <ShieldCheck size={14} />
+              <div>
+                <b>{verification[0].cross ? `교차 검증 (${verification[0].checker})` : "독립 검증"}</b>
+                {verification.map((v, i) => v.line && <p key={i}>{v.line}</p>)}
+              </div>
+            </div>
+          )}
           {opened.warnings.map((w) => (
             <p key={w} className="muted">
               주의: {w}

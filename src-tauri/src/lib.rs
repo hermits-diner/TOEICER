@@ -1,87 +1,99 @@
 mod ai;
 mod backup;
 mod cli;
-mod crawler;
+mod media;
 mod mp3;
 mod package;
+mod web;
 
-use tauri::Manager;
+use std::sync::Mutex;
+
+use tauri::{Emitter, Manager};
 use tauri_plugin_sql::{Migration, MigrationKind};
 
-const DB_URL: &str = "sqlite:toeicer.db";
+const DB_URL: &str = "sqlite:toeic.db";
+/// Set files the app opens by double-click; ".toeicset" is the earlier name.
+const SET_EXTS: [&str; 2] = ["toic", "toeicset"];
 
 fn migrations() -> Vec<Migration> {
-    vec![
-        Migration {
-            version: 1,
-            description: "initial_schema",
-            sql: include_str!("../migrations/001_initial.sql"),
-            kind: MigrationKind::Up,
-        },
-        Migration {
-            version: 2,
-            description: "group_options",
-            sql: include_str!("../migrations/002_group_options.sql"),
-            kind: MigrationKind::Up,
-        },
-        Migration {
-            version: 3,
-            description: "crawl_pipeline",
-            sql: include_str!("../migrations/003_crawl_pipeline.sql"),
-            kind: MigrationKind::Up,
-        },
-    ]
+    vec![Migration {
+        version: 1,
+        description: "schema",
+        sql: include_str!("../migrations/001_schema.sql"),
+        kind: MigrationKind::Up,
+    }]
+}
+
+/// Set files named on the command line (a double-click in Explorer passes the file's path).
+fn set_files(args: impl IntoIterator<Item = String>) -> Vec<String> {
+    args.into_iter()
+        .skip(1)
+        .filter(|a| {
+            std::path::Path::new(a)
+                .extension()
+                .and_then(|e| e.to_str())
+                .is_some_and(|e| SET_EXTS.iter().any(|x| e.eq_ignore_ascii_case(x)))
+        })
+        .collect()
+}
+
+/// Set files the app was started with, handed to the page once it asks.
+struct Opened(Mutex<Vec<String>>);
+
+#[tauri::command]
+fn take_opened_files(state: tauri::State<'_, Opened>) -> Vec<String> {
+    std::mem::take(&mut *state.0.lock().unwrap())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // A second launch (another double-clicked set file) hands its files to the open window instead.
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            let files = set_files(args);
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.unminimize();
+                let _ = w.set_focus();
+            }
+            if !files.is_empty() {
+                let _ = app.emit("open-set-files", files);
+            }
+        }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_window_state::Builder::default().build())
-        .plugin(
-            tauri_plugin_sql::Builder::default()
-                .add_migrations(DB_URL, migrations())
-                .build(),
-        )
-        .manage(crawler::CrawlerState::new())
+        .plugin(tauri_plugin_sql::Builder::default().add_migrations(DB_URL, migrations()).build())
         .manage(ai::AiState::new())
+        .manage(web::WebState::new())
+        .manage(Opened(Mutex::new(set_files(std::env::args()))))
         .invoke_handler(tauri::generate_handler![
-            ai::ai_audio,
             ai::ai_cli_status,
             ai::ai_complete,
+            ai::ai_delete_key,
+            ai::ai_image,
+            ai::ai_key_status,
+            ai::ai_list_models,
+            ai::ai_set_key,
+            ai::ai_tts,
             backup::backup_check_dir,
             backup::backup_list_auto,
             backup::backup_location,
             backup::backup_onedrive_dir,
             backup::backup_prune_auto,
             backup::backup_snapshot_path,
-            backup::backup_sync_recordings,
             backup::backup_write_zip,
             backup::restore_cancel,
             backup::restore_commit,
             backup::restore_prepare,
-            ai::ai_delete_key,
-            ai::ai_key_status,
-            ai::ai_list_models,
-            ai::ai_set_key,
-            ai::ai_tts,
-            crawler::crawl_fetch,
-            crawler::crawl_robots,
-            crawler::extract_pdf_bytes,
-            crawler::read_raw,
-            crawler::crawl_image,
-            crawler::read_image,
-            crawler::crawl_audio,
-            crawler::read_audio,
-            crawler::save_recording,
-            crawler::save_image,
-            ai::ai_image,
-            mp3::audio_to_mp3,
+            media::read_audio,
+            media::read_image,
             mp3::save_audio_as,
+            web::extract_pdf_bytes,
+            web::fetch_page,
             package::package_read,
             package::package_write,
-            package::write_text
+            package::write_text,
+            take_opened_files
         ])
         .setup(|app| {
             // Swap in a restored database before the webview gets a chance to open the current one.
@@ -101,4 +113,15 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|_, _| {});
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn picks_set_files_from_the_command_line() {
+        let args = ["app.exe", "C:\\a\\TOEIC 1회 LC.toic", "--flag", "old.TOEICSET", "notes.txt"].map(String::from);
+        assert_eq!(set_files(args), vec!["C:\\a\\TOEIC 1회 LC.toic".to_string(), "old.TOEICSET".to_string()]);
+    }
 }

@@ -5,7 +5,7 @@ import { getDb } from "./db";
 import { BRAND } from "./brand";
 
 /** Highest migration this build knows (src-tauri/src/lib.rs). A backup from a newer build cannot be opened here. */
-const MAX_MIGRATION = 3;
+const MAX_MIGRATION = 1;
 
 export interface BackupInfo {
   name: string;
@@ -51,11 +51,10 @@ export const listAutoBackups = async () => invoke<BackupInfo[]>("backup_list_aut
 
 /**
  * Once a day (or whenever `force` is set): copy the database to auto-YYYY-MM-DD.db in the backup folder and keep
- * the newest seven. New speaking recordings are mirrored every time, since they cannot be downloaded again.
+ * the newest seven.
  */
 export async function autoBackupIfDue(force = false): Promise<boolean> {
   const dir = await chosenDir();
-  await invoke("backup_sync_recordings", { dir });
   const name = `auto-${day()}.db`;
   const existing = await listAutoBackups();
   if (!force && existing.some((b) => b.name === name)) return false;
@@ -66,7 +65,7 @@ export async function autoBackupIfDue(force = false): Promise<boolean> {
 
 export const defaultBackupName = () => `${BRAND.appName}-백업-${day()}.zip`;
 
-/** Writes everything (database, originals, pictures, recordings) into one zip at `dest`. */
+/** Writes everything into one zip at `dest`. */
 export async function createBackupFile(dest: string): Promise<BackupInfo> {
   const snap = await snapshot(`manual-${stamp()}.db`);
   return invoke<BackupInfo>("backup_write_zip", { snapshot: snap, dest });
@@ -75,7 +74,6 @@ export async function createBackupFile(dest: string): Promise<BackupInfo> {
 export interface RestorePreview {
   tests: number;
   attempts: number;
-  entries: number;
 }
 
 /** Unpacks a backup to the staging folder and reads it, without touching the live data. */
@@ -89,10 +87,7 @@ export async function prepareRestore(source: string): Promise<RestorePreview> {
     const count = async (sql: string) => (await db!.select<{ n: number }[]>(sql))[0]?.n ?? 0;
     const tests = await count("SELECT COUNT(*) AS n FROM test");
     const attempts = await count("SELECT COUNT(*) AS n FROM attempt");
-    const entries = await count(
-      "SELECT CASE WHEN EXISTS (SELECT 1 FROM sqlite_master WHERE name = 'practice_entry') THEN (SELECT COUNT(*) FROM practice_entry) ELSE 0 END AS n",
-    );
-    return { tests, attempts, entries };
+    return { tests, attempts };
   } catch (e) {
     await db?.close().catch(() => {});
     db = null;
@@ -111,6 +106,3 @@ export async function commitRestore(): Promise<void> {
   await snapshot(`before-restore-${stamp()}.db`);
   await invoke("restore_commit");
 }
-
-/** Restores one of the daily copies (or a before-restore copy) the same way as a backup file. */
-export const prepareRestoreFromAuto = (b: BackupInfo) => prepareRestore(b.path);

@@ -8,7 +8,7 @@
 // Reading test (101–200), stored with the verification record.
 import { invoke } from "@tauri-apps/api/core";
 import { complete, pickVerifier, providerLabel, type AiSettings } from "./ai";
-import { extractJson } from "./generate";
+import { extractJson } from "./json";
 import { guidelinesForPrompt, optionProblems } from "./itemGuidelines";
 import { BLUEPRINT, specForPrompt, TARGET_TEXT, type Target, type ToeicPart } from "./toeicSpec";
 import { assignGeminiVoices, geminiSynthesize, type SpeakerInfo, type SynthTurn } from "./tts";
@@ -761,7 +761,7 @@ export function listeningTest(d: Partial<Draft>, title: string): { test: ImportT
     });
   });
 
-  return { test: { title, kind: "listening", module: "academic", passages }, audio, images };
+  return { test: { title, kind: "listening", passages }, audio, images };
 }
 
 /** Reading (Parts 5–7, numbered from 101 as on the test). */
@@ -802,7 +802,7 @@ export function readingTest(d: Partial<Draft>, title: string): ImportTest {
       });
     });
   }
-  return { title, kind: "reading", module: "academic", passages };
+  return { title, kind: "reading", passages };
 }
 
 /* ---------- Pipeline ---------- */

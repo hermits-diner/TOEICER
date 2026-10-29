@@ -20,7 +20,6 @@ const passage = (id: number, title: string, body: string, questions: Question[])
   title,
   bodyHtml: body,
   audio: null,
-  sampleHtml: null,
   groups: [{ id, type: "mcq", instructions: null, options: [], image: null, questions }],
 });
 
@@ -28,7 +27,7 @@ const reading: TestDetail = {
   id: 1,
   title: "AI · Reading",
   kind: "reading",
-  module: "academic",
+  origin: "ai",
   ai: true,
   reported: [],
   passages: [

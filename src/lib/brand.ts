@@ -1,16 +1,12 @@
-// What makes this app TOEICER rather than its siblings (IELTS, TOEFLER) built on the same code:
-// names shown to the user, how scores read, the signature theme, and where backups go.
+// What makes this app TOEICER rather than its siblings built on the same code: the names shown to the user and
+// how scores read.
 
 export const BRAND = {
   appName: "TOEICER",
   examName: "TOEIC",
   guideLabel: "TOEIC 가이드",
-  /** Folder under Documents for automatic backups (src-tauri/src/backup.rs uses the same name). */
-  backupFolder: "TOEICER 백업",
   /** What a section result is called on screen. */
   scoreName: "점수",
-  /** Score scale shown beside results. */
-  scale: "영역별 5–495 · 총점 10–990",
   /** Sections this app practises; TOEIC Listening and Reading. */
   sections: ["listening", "reading"] as const,
   /** Reading time per question: TOEIC Reading allows 75 minutes for 100. */

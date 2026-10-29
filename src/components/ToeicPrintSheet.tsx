@@ -1,8 +1,9 @@
 import { createPortal } from "react-dom";
 import { bandFor } from "../lib/bandTable";
-import { TOEIC_PARTS, type ToeicPart } from "../lib/toeicSpec";
+import { partOfTitle, TOEIC_PARTS, type ToeicPart } from "../lib/toeicSpec";
 import type { Passage, Question, TestDetail } from "../lib/types";
-import type { PrintMode } from "./PrintSheet";
+
+export type PrintMode = "questions" | "answers";
 
 interface Props {
   test: TestDetail;
@@ -24,10 +25,7 @@ export const PART_DIRECTIONS: Record<ToeicPart, string> = {
   7: "Read the texts below, such as emails, notices, articles and online chats. Each text or set of texts is followed by several questions. Choose the best answer to each question.",
 };
 
-export const partOf = (p: Passage): ToeicPart | null => {
-  const m = (p.title ?? "").match(/^Part\s+([1-7])\b/);
-  return m ? (Number(m[1]) as ToeicPart) : null;
-};
+export const partOf = (p: Passage): ToeicPart | null => partOfTitle(p.title);
 
 /** What a set's text is ("e-mail", "text-message chain"), from its title. */
 export function genreOf(title: string | null): string {
@@ -169,7 +167,7 @@ function OmrSheet({ questions, listening }: { questions: Question[]; listening: 
 function AnswerKey({ test, questions, parts, responses, results }: Props & { questions: Question[]; parts: [ToeicPart, Question[]][] }) {
   const right = results ? questions.filter((q) => results[q.id]).length : null;
   const counted = results ? questions.filter((q) => q.id in results).length : questions.length;
-  const estimate = right === null ? null : bandFor(test.kind, test.module, right, counted).band;
+  const estimate = right === null ? null : bandFor(test.kind, right, counted).band;
   return (
     <section className="tk-key">
       <header className="tk-key-head">

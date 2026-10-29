@@ -1,20 +1,15 @@
-import { ChevronLeft, Flag, GraduationCap, Printer, RotateCcw, Sparkles, Timer } from "lucide-react";
+import { ChevronLeft, Flag, GraduationCap, Printer, RotateCcw, Timer } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import AudioPlayer from "../components/AudioPlayer";
-import CompleteWords from "../components/CompleteWords";
 import SpeakButton from "../components/SpeakButton";
 import HighlightToolbar from "../components/HighlightToolbar";
-import PrintSheet, { type PrintMode } from "../components/PrintSheet";
-import ToeicPrintSheet, { partOf } from "../components/ToeicPrintSheet";
+import ToeicPrintSheet, { type PrintMode } from "../components/ToeicPrintSheet";
 import QuestionGroupView from "../components/QuestionGroupView";
-import { errorText, loadAiSettings } from "../lib/ai";
 import { bandFor, formatBand, type BandResult } from "../lib/bandTable";
 import { BRAND } from "../lib/brand";
-import { passageToHtml } from "../lib/importFormat";
-import { loadTest, saveAttempt, setQuestionReported, updateAttemptScore, updatePassageBody } from "../lib/repo";
+import { loadTest, saveAttempt, setQuestionReported, updateAttemptScore } from "../lib/repo";
 import { scoreTest, type ScoreResult } from "../lib/scoring";
-import { transcribeListening } from "../lib/transcript";
 import { passageTab } from "../lib/taskLabels";
 import type { TestDetail } from "../lib/types";
 
@@ -58,9 +53,6 @@ export default function ReadingPractice({ testId, onExit }: { testId: number; on
   const [examMode, setExamMode] = useState(false);
   const [confirmSubmit, setConfirmSubmit] = useState(false);
   const [textEl, setTextEl] = useState<HTMLDivElement | null>(null);
-  /** Listening sets collected without a script: the recording is being transcribed by the AI. */
-  const [scripting, setScripting] = useState(false);
-  const [scriptError, setScriptError] = useState<string | null>(null);
 
   const toggleFlag = (id: number) =>
     setFlagged((f) => {
@@ -99,7 +91,7 @@ export default function ReadingPractice({ testId, onExit }: { testId: number; on
     );
   }, [testId]);
 
-  // Reading runs against the clock; a listening section lasts as long as its recording, so it only counts up.
+  // Reading runs against the clock; a Listening set lasts as long as its recordings, so it only counts up.
   const listening = test?.kind === "listening";
   const itemCount = test?.passages.reduce((n, p) => n + p.groups.reduce((m, g) => m + g.questions.length, 0), 0) ?? 0;
   const limit = listening ? Infinity : Math.max(MIN_SECONDS, itemCount * SECONDS_PER_ITEM);
@@ -107,7 +99,7 @@ export default function ReadingPractice({ testId, onExit }: { testId: number; on
   const flatQuestions = useMemo(
     () =>
       test?.passages.flatMap((p) =>
-        p.groups.flatMap((g) => g.questions.map((q) => ({ id: q.id, type: g.type, answer: q.answer }))),
+        p.groups.flatMap((g) => g.questions.map((q) => ({ id: q.id, answer: q.answer }))),
       ) ?? [],
     [test],
   );
@@ -119,7 +111,7 @@ export default function ReadingPractice({ testId, onExit }: { testId: number; on
         flatQuestions.filter((q) => !skip.has(q.id)),
         answers,
       );
-      const band = bandFor(test.kind, test.module, score.correct, score.total);
+      const band = bandFor(test.kind, score.correct, score.total);
       const byQuestion = Object.fromEntries(score.results.map((r) => [r.questionId, r.isCorrect]));
       return { score, band, elapsed: spent, byQuestion };
     },
@@ -183,28 +175,8 @@ export default function ReadingPractice({ testId, onExit }: { testId: number; on
   if (!test) return <div className="content"><p className="sub">불러오는 중…</p></div>;
 
   const passage = test.passages[passageIdx];
-  /** "Complete the Words": the blanks sit inside the paragraph, so there is no separate question column. */
-  const cwordPassage = passage.groups.length > 0 && passage.groups.every((g) => g.type === "cword");
-  /** "Build a Sentence": short instructions and many items, read top to bottom in one column. */
-  const buildPassage = passage.groups.length > 0 && passage.groups.every((g) => g.type === "build");
   const remaining = limit - elapsed;
 
-  /** Transcribes this section's recording and stores it as the section's script. */
-  const makeScript = async () => {
-    if (!passage.audio) return;
-    setScripting(true);
-    setScriptError(null);
-    try {
-      const body = await transcribeListening(loadAiSettings(), passage.audio);
-      const html = passageToHtml({ body, groups: [] });
-      await updatePassageBody(passage.id, html);
-      setTest((t) => t && { ...t, passages: t.passages.map((p) => (p.id === passage.id ? { ...p, bodyHtml: html } : p)) });
-    } catch (e) {
-      setScriptError(errorText(e));
-    } finally {
-      setScripting(false);
-    }
-  };
   const answeredCount = flatQuestions.filter((q) => (answers[q.id] ?? "").trim() !== "").length;
   const unanswered = flatQuestions.length - answeredCount;
   const askSubmit = () => (unanswered > 0 ? setConfirmSubmit(true) : submit());
@@ -220,7 +192,7 @@ export default function ReadingPractice({ testId, onExit }: { testId: number; on
           <div className="segmented small">
             {test.passages.map((p, i) => (
               <button key={p.id} className={i === passageIdx ? "on" : ""} title={p.title ?? undefined} onClick={() => setPassageIdx(i)}>
-                {passageTab(p.title, i, test.passages.length, listening ? "Section" : "Passage")}
+                {passageTab(p.title, i)}
               </button>
             ))}
           </div>
@@ -295,8 +267,7 @@ export default function ReadingPractice({ testId, onExit }: { testId: number; on
         </div>
       )}
 
-      <div className={`split lookup-zone${cwordPassage || buildPassage ? " single" : ""}`} data-test-id={test.id}>
-        {!buildPassage && (
+      <div className="split lookup-zone" data-test-id={test.id}>
         <article className="passage">
           {passage.title && <h2>{passage.title}</h2>}
           {listening &&
@@ -307,30 +278,11 @@ export default function ReadingPractice({ testId, onExit }: { testId: number; on
                 <SpeakButton key={passage.id} text={htmlText(passage.bodyHtml)} label="듣기 (Windows 음성)" />
               </div>
             ) : (
-              <p className="muted">이 섹션에는 음성이 없습니다.</p>
+              <p className="muted">이 세트에는 음성이 없습니다.</p>
             ))}
           {listening && passage.bodyHtml && !outcome && <p className="muted">스크립트는 제출한 뒤에 볼 수 있습니다.</p>}
-          {listening && passage.audio && (!passage.bodyHtml || outcome) && (
-            <div className="script-tools">
-              {!passage.bodyHtml && <span className="muted">이 섹션에는 스크립트가 없습니다.</span>}
-              <button className="btn small" disabled={scripting} onClick={makeScript}>
-                <Sparkles size={13} /> {scripting ? "받아쓰는 중…" : passage.bodyHtml ? "AI로 스크립트 다시 만들기" : "AI로 스크립트 만들기"}
-              </button>
-              {scriptError && <span className="error">{scriptError}</span>}
-            </div>
-          )}
-          {/* body_html is built from escaped text in passageToHtml; for listening it is the transcript, shown after submission */}
-          {cwordPassage && (
-            <CompleteWords
-              key={passage.id}
-              bodyHtml={passage.bodyHtml}
-              questions={passage.groups.flatMap((g) => g.questions)}
-              answers={answers}
-              onAnswer={(id, v) => setAnswers((a) => ({ ...a, [id]: v }))}
-              results={outcome?.byQuestion}
-            />
-          )}
-          {!cwordPassage && (!listening || outcome) && (
+          {/* body_html is built from escaped text in passageToHtml; for Listening it is the script, shown after submission */}
+          {(!listening || outcome) && (
             <div
               ref={setTextEl}
               key={passage.id}
@@ -339,13 +291,7 @@ export default function ReadingPractice({ testId, onExit }: { testId: number; on
             />
           )}
         </article>
-        )}
-        {!cwordPassage && (
-        <div className={`questions${buildPassage ? " single-col" : ""}`}>
-          {buildPassage && (
-            /* body_html is built from escaped text in passageToHtml */
-            <div className="build-intro" dangerouslySetInnerHTML={{ __html: passage.bodyHtml }} />
-          )}
+        <div className="questions">
           {passage.groups.map((g) => (
             <QuestionGroupView
               key={g.id}
@@ -360,7 +306,6 @@ export default function ReadingPractice({ testId, onExit }: { testId: number; on
             />
           ))}
         </div>
-        )}
       </div>
 
       <HighlightToolbar container={textEl} onChange={(html) => setMarked((m) => ({ ...m, [passage.id]: html }))} />
@@ -368,7 +313,7 @@ export default function ReadingPractice({ testId, onExit }: { testId: number; on
       <nav className="qnav" aria-label="문항 이동">
         {test.passages.map((p, pi) => (
           <div key={p.id} className={`qnav-part${pi === passageIdx ? " current" : ""}`}>
-            <span className="qnav-label">{passageTab(p.title, pi, test.passages.length, listening ? "Part" : "Passage")}</span>
+            <span className="qnav-label">{passageTab(p.title, pi)}</span>
             {p.groups.flatMap((g) => g.questions).map((q) => {
               const state = reported.has(q.id)
                 ? " reported"
@@ -399,11 +344,7 @@ export default function ReadingPractice({ testId, onExit }: { testId: number; on
         )}
       </nav>
 
-      {test.passages.length > 0 && test.passages.every((p) => partOf(p)) ? (
-        <ToeicPrintSheet test={test} mode={printMode} responses={outcome ? answers : undefined} results={outcome?.byQuestion} />
-      ) : (
-        <PrintSheet test={test} mode={printMode} responses={outcome ? answers : undefined} results={outcome?.byQuestion} />
-      )}
+      <ToeicPrintSheet test={test} mode={printMode} responses={outcome ? answers : undefined} results={outcome?.byQuestion} />
     </div>
   );
 }

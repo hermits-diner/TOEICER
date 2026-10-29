@@ -5,7 +5,7 @@ const invoke = vi.fn();
 const complete = vi.fn();
 vi.mock("@tauri-apps/api/core", () => ({ invoke: (...a: unknown[]) => invoke(...a) }));
 vi.mock("./ai", () => ({ complete: (...a: unknown[]) => complete(...a) }));
-vi.mock("./generate", () => ({ extractJson: (t: string) => JSON.parse(t) }));
+vi.mock("./json", () => ({ extractJson: (t: string) => JSON.parse(t) }));
 
 const { officialBrief, parseBrief, trendPrompt, trendSection, loadTrendBrief } = await import("./trend");
 
