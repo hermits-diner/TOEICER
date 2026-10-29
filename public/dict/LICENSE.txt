@@ -1,0 +1,9 @@
+en-ko.json - English-Korean dictionary data
+
+Derived from the English entries of the Korean Wiktionary (https://ko.wiktionary.org),
+extracted by wiktextract (https://kaikki.org/dictionary/rawdata.html, ko-extract, 2026-09 dump)
+and reduced by scripts/build-dict.py.
+
+Licensed under the Creative Commons Attribution-ShareAlike 4.0 License (CC BY-SA 4.0):
+https://creativecommons.org/licenses/by-sa/4.0/
+Authors: Wiktionary contributors.
