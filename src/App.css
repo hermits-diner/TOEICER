@@ -1514,3 +1514,83 @@ mark.hl.noted::after { content: "✎"; font-size: 0.7em; vertical-align: super; 
 .choices.letters .choice { min-width: 56px; justify-content: center; }
 .question.correct .choices.letters, .question.wrong .choices.letters { flex-direction: column; }
 .qgroup-instructions { white-space: pre-line; }
+/* TOEIC test book (ToeicPrintSheet): section band, black PART bars, framed texts, an answer sheet and a scoring page. */
+@media print {
+  .toeic-sheet { --ink: #1f2a2e; --em: #0f8a5f; font: 10.2pt/1.5 "Times New Roman", Georgia, serif; color: #000; }
+  .tk-cover { display: flex; justify-content: space-between; align-items: stretch; border: 1.4pt solid #000; margin-bottom: 8pt; }
+  .tk-band { background: #000; color: #fff; padding: 8pt 14pt; flex: 1; display: flex; flex-direction: column; }
+  .tk-band b { font: 800 19pt/1.1 Arial, "Helvetica Neue", sans-serif; letter-spacing: 0.08em; }
+  .tk-band span { font: 8.5pt "Malgun Gothic", Arial, sans-serif; opacity: 0.85; margin-top: 2pt; }
+  .tk-meta { display: flex; flex-direction: column; justify-content: center; gap: 6pt; padding: 6pt 12pt; font: 8.5pt "Malgun Gothic", sans-serif; min-width: 130pt; }
+  .tk-meta i { display: inline-block; width: 80pt; border-bottom: 0.8pt solid #000; height: 10pt; vertical-align: bottom; }
+  .tk-general { font-style: italic; font-size: 9pt; margin: 0 0 10pt; }
+  .tk-part { margin-bottom: 8pt; }
+  .tk-part-head { display: flex; gap: 8pt; align-items: stretch; margin: 6pt 0 8pt; break-after: avoid; }
+  .tk-part-head b { background: #000; color: #fff; font: 800 11pt Arial, sans-serif; padding: 3pt 8pt; display: flex; align-items: center; white-space: nowrap; }
+  .tk-part-head p { margin: 0; border: 0.8pt solid #000; padding: 4pt 8pt; font-size: 9pt; flex: 1; }
+  .tk-cols { column-count: 2; column-gap: 9mm; column-rule: 0.5pt solid #999; }
+  .tk-set { break-inside: avoid-page; margin-bottom: 10pt; }
+  .tk-refer { font-weight: 700; margin: 0 0 4pt; }
+  .tk-text { border: 0.8pt solid #000; padding: 6pt 10pt; margin-bottom: 6pt; }
+  .tk-text p { margin: 0 0 4pt; }
+  .tk-graphic { border: 0.8pt solid #000; padding: 4pt 8pt; margin: 0 0 6pt; font: 9pt Arial, sans-serif; display: inline-block; min-width: 50%; }
+  .tk-qs { display: grid; grid-template-columns: 1fr 1fr; column-gap: 9mm; }
+  .tk-set.p5 .tk-qs { grid-template-columns: 1fr; }
+  .tk-q { break-inside: avoid; margin-bottom: 6pt; }
+  .tk-q p { margin: 0 0 2pt; }
+  .tk-choices { list-style: none; margin: 0 0 0 14pt; padding: 0; }
+  .tk-choices.two { display: grid; grid-template-columns: 1fr 1fr; column-gap: 6pt; }
+  .tk-choices b { font-weight: 400; }
+  .tk-photo { break-inside: avoid; margin-bottom: 10pt; }
+  .tk-photo img { display: block; max-width: 70%; max-height: 210pt; margin: 0 auto 4pt; border: 0.6pt solid #000; }
+  .tk-photo-missing { border: 0.8pt dashed #999; height: 120pt; display: flex; align-items: center; justify-content: center; color: #999; }
+  .tk-photo p, .tk-mark { margin: 0 0 4pt; }
+
+  .tk-omr { break-before: page; break-inside: avoid; --omr: #0f8a5f; color: var(--omr); font-family: Arial, "Malgun Gothic", sans-serif; }
+  .tk-omr-head { display: flex; justify-content: space-between; align-items: center; border: 1.6pt solid var(--omr); padding: 6pt 10pt; margin-bottom: 10pt; }
+  .tk-omr-head > div { display: flex; flex-direction: column; }
+  .tk-omr-head span { font-size: 8pt; letter-spacing: 0.25em; }
+  .tk-omr-head b { font-size: 15pt; letter-spacing: 0.08em; }
+  .tk-omr-head table { border-collapse: collapse; }
+  .tk-omr-head th, .tk-omr-head td { border: 0.8pt solid var(--omr); height: 20pt; padding: 0 6pt; font-size: 8pt; }
+  .tk-omr-head th { background: #e6f4ee; }
+  .tk-omr-head td { width: 60pt; }
+  .tk-omr-head td.wide { width: 110pt; }
+  .tk-omr-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4mm; }
+  .tk-omr-col { border-collapse: collapse; width: 100%; border: 1.2pt solid var(--omr); align-self: start; }
+  .tk-omr-col thead th { background: var(--omr); color: #fff; font-size: 7.5pt; padding: 2pt 0; letter-spacing: 0.1em; }
+  .tk-omr-col tbody th { width: 22pt; font-size: 8.5pt; background: #e6f4ee; border-right: 0.8pt solid var(--omr); }
+  .tk-omr-col tbody td { text-align: center; padding: 2.6pt 0; }
+  .tk-omr-col tr.fifth th, .tk-omr-col tr.fifth td { border-bottom: 0.8pt solid var(--omr); }
+  .tk-bubble { display: inline-flex; align-items: center; justify-content: center; width: 11pt; height: 11pt; border: 0.8pt solid var(--omr); border-radius: 50%; font-size: 6.5pt; font-weight: 700; }
+
+  .tk-key { break-before: page; font-family: Arial, "Malgun Gothic", sans-serif; color: var(--ink); }
+  .tk-key-head { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 2.4pt solid #000; padding-bottom: 6pt; margin-bottom: 12pt; }
+  .tk-key-head span { font-size: 8.5pt; letter-spacing: 0.2em; color: var(--em); font-weight: 700; }
+  .tk-key-head h2 { font: 800 15pt/1.3 Arial, "Malgun Gothic", sans-serif; margin: 2pt 0 0; }
+  .tk-key-head > b { background: #000; color: #fff; padding: 3pt 10pt; font-size: 12pt; }
+  .tk-key-grid { display: grid; grid-template-columns: repeat(10, minmax(0, 1fr)); border-top: 0.8pt solid #000; border-left: 0.8pt solid #000; }
+  .tk-cell { border-right: 0.8pt solid #000; border-bottom: 0.8pt solid #000; padding: 2pt 0 3pt; display: flex; flex-direction: column; align-items: center; }
+  .tk-cell span { font-size: 7.5pt; color: #666; }
+  .tk-cell b { font-size: 14pt; line-height: 1.2; }
+  .tk-cell i { font-style: normal; font-size: 7.5pt; color: #444; }
+  .tk-cell.x { background: #fdecea; }
+  .tk-cell.x i { color: #c0392b; font-weight: 700; }
+  .tk-cell.skip { background: #f2f2f2; }
+  .tk-key-lower { display: grid; grid-template-columns: 1fr 1.2fr; gap: 9mm; margin-top: 14pt; align-items: start; }
+  .tk-key-parts { width: 100%; border-collapse: collapse; font-size: 9.5pt; }
+  .tk-key-parts th, .tk-key-parts td { border-bottom: 0.6pt solid #bbb; padding: 4pt 6pt; text-align: left; }
+  .tk-key-parts thead th { border-bottom: 1.2pt solid #000; font-size: 8.5pt; color: #666; }
+  .tk-key-parts th span { font-weight: 400; color: #666; font-size: 8pt; margin-left: 3pt; }
+  .tk-key-parts td.fill { text-align: right; font-weight: 700; white-space: pre; }
+  .tk-key-score { border: 1.2pt solid #000; border-radius: 3pt; padding: 8pt 10pt; font-size: 8.5pt; }
+  .tk-key-formula { display: flex; align-items: center; gap: 5pt; font-size: 10pt; margin-bottom: 6pt; }
+  .tk-key-formula .fill { display: inline-block; min-width: 28pt; border-bottom: 1pt solid #000; text-align: center; font-size: 14pt; }
+  .tk-key-formula .fill.big { min-width: 44pt; font-size: 18pt; color: var(--em); }
+  .tk-key-est { margin-left: auto; }
+  .tk-key-score p { margin: 0; color: #555; line-height: 1.5; }
+  .tk-scripts { break-before: page; font-size: 9pt; }
+  .tk-scripts h2 { font: 800 12pt Arial, sans-serif; margin: 0 0 6pt; }
+  .tk-script { break-inside: avoid; margin-bottom: 8pt; }
+  .tk-script p { margin: 0 0 2pt; }
+}

@@ -6,6 +6,7 @@ import CompleteWords from "../components/CompleteWords";
 import SpeakButton from "../components/SpeakButton";
 import HighlightToolbar from "../components/HighlightToolbar";
 import PrintSheet, { type PrintMode } from "../components/PrintSheet";
+import ToeicPrintSheet, { partOf } from "../components/ToeicPrintSheet";
 import QuestionGroupView from "../components/QuestionGroupView";
 import { errorText, loadAiSettings } from "../lib/ai";
 import { bandFor, formatBand, type BandResult } from "../lib/bandTable";
@@ -398,12 +399,11 @@ export default function ReadingPractice({ testId, onExit }: { testId: number; on
         )}
       </nav>
 
-      <PrintSheet
-        test={test}
-        mode={printMode}
-        responses={outcome ? answers : undefined}
-        results={outcome?.byQuestion}
-      />
+      {test.passages.length > 0 && test.passages.every((p) => partOf(p)) ? (
+        <ToeicPrintSheet test={test} mode={printMode} responses={outcome ? answers : undefined} results={outcome?.byQuestion} />
+      ) : (
+        <PrintSheet test={test} mode={printMode} responses={outcome ? answers : undefined} results={outcome?.byQuestion} />
+      )}
     </div>
   );
 }
