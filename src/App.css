@@ -1321,6 +1321,12 @@ mark.hl.noted::after { content: "✎"; font-size: 0.7em; vertical-align: super; 
 .gen-steps { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
 .gen-steps li { display: flex; align-items: center; gap: 8px; color: var(--text-secondary); }
 .gen-steps li.done { color: #34c759; }
+.trend-box { margin: 12px 0 0; padding: 10px 12px; border: 1px solid var(--border, rgba(0,0,0,.12)); border-radius: 10px; background: var(--surface-2, rgba(0,0,0,.025)); display: flex; flex-direction: column; gap: 6px; }
+.trend-box p, .trend-box ul { margin: 0; }
+.trend-box ul { padding-left: 18px; color: var(--text-secondary); }
+.trend-box.warn { border-color: #ff9f0a; }
+.trend-box .warn-line { color: #c26a00; display: flex; gap: 6px; align-items: flex-start; }
+.gen-report svg { vertical-align: -2px; }
 .gen-steps li.now { color: var(--text); font-weight: 600; }
 .gen-steps .dot { width: 13px; height: 13px; display: inline-block; border-radius: 50%; border: 1.5px solid var(--separator); }
 

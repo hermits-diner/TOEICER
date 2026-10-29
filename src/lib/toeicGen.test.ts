@@ -2,16 +2,18 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { validateImport } from "./importFormat";
 import { BLUEPRINT as B } from "./toeicSpec";
 
-const calls: { system: string; prompt: string }[] = [];
+const calls: { by: string; system: string; prompt: string }[] = [];
 let replies: ((system: string, prompt: string) => string)[] = [];
 
 vi.mock("./ai", () => ({
-  complete: vi.fn(async (_s: unknown, system: string, prompt: string) => {
-    calls.push({ system, prompt });
+  complete: vi.fn(async (s: { provider?: string }, system: string, prompt: string) => {
+    calls.push({ by: s.provider ?? "", system, prompt });
     const next = replies.shift();
     if (!next) throw new Error("unexpected AI call");
     return { text: next(system, prompt), model: "fake", inputTokens: null, outputTokens: null };
   }),
+  pickVerifier: vi.fn(async (s: { provider: string }) => ({ settings: { ...s, provider: "codex-cli" }, cross: true })),
+  providerLabel: (id: string) => id,
 }));
 vi.mock("./tts", () => ({
   assignGeminiVoices: (s: Record<string, unknown>) => Object.fromEntries(Object.keys(s).map((k) => [k, "Kore"])),
@@ -20,8 +22,9 @@ vi.mock("./tts", () => ({
 const invoke = vi.fn(async () => `img-${"2".repeat(32)}.png`);
 vi.mock("@tauri-apps/api/core", () => ({ invoke }));
 
-const { generateToeic, MEASURE, PARSE, balance } = await import("./toeicGen");
-const settings = { ttsModel: "tts", imageModel: "img" } as never;
+const { generateToeic, MEASURE, PARSE, balance, cues, itemName, reportLine } = await import("./toeicGen");
+const settings = { provider: "claude-cli", ttsModel: "tts", imageModel: "img" } as never;
+const clean = () => JSON.stringify({ faults: [] });
 
 const q = (answer = "A", prompt = "What is the purpose?") => ({ prompt, options: ["One", "Two", "Three", "Four"], answer });
 const words = (n: number) => Array.from({ length: n }, (_, i) => `word${i}`).join(" ");
@@ -70,14 +73,23 @@ const fixtures = {
   }),
 };
 
-/** A solver that answers every item with its key, read back from the fix-free prompt. */
-const agree = (_s: string, prompt: string) => {
-  const answers: Record<string, string> = {};
-  for (const block of prompt.split("### ").slice(1)) answers[block.split("\n")[0].trim()] = "?";
-  return JSON.stringify({ answers });
+/** The fixtures' keys by item id (before the keys are spread over the letters). */
+const keyOf = (id: string): string => {
+  const [, k, , b] = /^([A-Z])(\d+)(?:\.(\d+))?$/.exec(id)!;
+  if (k === "P") return "A";
+  if (k === "Q") return "B";
+  if (k === "C") return "ABC"[Number(b) - 1];
+  if (k === "T") return "A";
+  if (k === "S") return "C";
+  if (k === "X") return "ABCD"[Number(b) - 1];
+  return "?";
 };
-const keepAll = (_s: string, prompt: string) =>
-  JSON.stringify({ decisions: [...prompt.matchAll(/### (\S+)/g)].map((m) => ({ id: m[1], action: "keep", answer: "" })) });
+const ids = (prompt: string) => prompt.split("### ").slice(1).map((block) => block.split("\n")[0].trim());
+/** A blind solver that answers every item as keyed, except where `answer` says otherwise. */
+const solve =
+  (answer: (id: string) => string | undefined = () => undefined, unsure: string[] = []) =>
+  (_s: string, prompt: string) =>
+    JSON.stringify({ answers: Object.fromEntries(ids(prompt).map((id) => [id, answer(id) ?? keyOf(id)])), unsure });
 
 beforeEach(() => {
   calls.length = 0;
@@ -107,8 +119,15 @@ describe("format measurements", () => {
 
 describe("generateToeic", () => {
   it("builds a 200-question test, Listening 1–100 with photos and speech, Reading 101–200", async () => {
-    replies = (["p12", "p3", "p4", "p56", "p7s", "p7m"] as const).flatMap((u) => [() => JSON.stringify(fixtures[u]()), agree, keepAll]);
+    const p7 = (u: "p7s" | "p7m") => solve(() => (u === "p7s" ? "D" : "B"));
+    replies = (["p12", "p3", "p4", "p56", "p7s", "p7m"] as const).flatMap((u) => [() => JSON.stringify(fixtures[u]()), clean, u === "p7s" || u === "p7m" ? p7(u) : solve()]);
     const r = await generateToeic(settings, { units: ["p12", "p3", "p4", "p56", "p7s", "p7m"], target: "750", topics: "", speech: true, images: true });
+    // The writer writes; the other CLI proofreads and solves.
+    expect(calls.map((c) => c.by).slice(0, 3)).toEqual(["claude-cli", "codex-cli", "codex-cli"]);
+    expect(r.reports[0]).toMatchObject({ writer: "claude-cli", checker: "codex-cli", cross: true, total: 31, agreed: 31, flagged: [], proofed: 0 });
+    expect(calls[0].prompt).toContain("at least 30% of the items");
+    // Listening items are solved from their scripts.
+    expect(calls[2].prompt).toContain("Photograph: A woman is typing at a desk.");
 
     const [listening, reading] = r.tests;
     for (const t of r.tests) expect(validateImport(t).errors, t.title).toEqual([]);
@@ -121,7 +140,7 @@ describe("generateToeic", () => {
     // Part 6 blanks carry the question numbers on the page.
     const part6 = reading.passages.find((p) => p.title?.startsWith("Part 6"))!;
     expect(part6.body).toContain("---(131)---");
-    expect(r.reports.every((x) => x.dropped === 0 && x.notes.length === 0)).toBe(true);
+    expect(r.reports.every((x) => x.dropped.length === 0 && x.notes.length === 0 && x.agreed === x.total)).toBe(true);
   });
 
   it("describes the scene in words when there are no photographs, and drops what the editor rejects", async () => {
@@ -135,13 +154,76 @@ describe("generateToeic", () => {
       }
       return JSON.stringify({ answers });
     };
-    replies = [() => JSON.stringify(fixtures.p12()), solver, drop];
+    // The rewrite of P1 is dropped again, so it stays out.
+    const rewrite = () => JSON.stringify({ items: [{ id: "P1", scene: "Two men are carrying a box.", statements: ["t1", "t2", "t3", "t4"], answer: "A" }] });
+    replies = [() => JSON.stringify(fixtures.p12()), clean, solver, drop, rewrite, solve(() => "C"), () => JSON.stringify({ decisions: [{ id: "P1", action: "drop" }] })];
     const r = await generateToeic(settings, { units: ["p12"], target: "600", topics: "hotel", speech: false, images: false });
     const t = r.tests[0];
     expect(t.passages.filter((p) => p.title?.startsWith("Part 1"))).toHaveLength(B[1].items - 1);
     expect(t.passages[0].groups[0].instructions).toContain("[사진 대신 장면 설명]");
-    expect(r.reports[0]).toMatchObject({ dropped: 1, rekeyed: 1 });
+    expect(r.reports[0]).toMatchObject({ dropped: ["P1"], refilled: [], rekeyed: 1, agreed: B[1].items + B[2].items - 2 });
     expect(invoke).not.toHaveBeenCalled();
     expect(calls[0].prompt).toContain("# Preferred settings\nhotel");
+  });
+
+  it("writes a dropped item again and keeps the rewrite when it checks out", async () => {
+    const drop = () => JSON.stringify({ decisions: [{ id: "P1", action: "drop" }] });
+    const rewrite = () => JSON.stringify({ items: [{ id: "P1", scene: "Two men are carrying a box.", statements: ["t1", "t2", "t3", "t4"], answer: "B" }] });
+    replies = [() => JSON.stringify(fixtures.p12()), clean, solve((id) => (id === "P1" ? "D" : undefined)), drop, rewrite, solve(() => "B")];
+    const r = await generateToeic(settings, { units: ["p12"], target: "750", topics: "", speech: false, images: false });
+    expect(r.tests[0].passages.filter((p) => p.title?.startsWith("Part 1"))).toHaveLength(B[1].items);
+    expect(r.tests[0].passages[0].groups[0].instructions).toContain("Two men are carrying a box.");
+    expect(r.reports[0]).toMatchObject({ refilled: ["P1"], dropped: [] });
+    expect(calls[4].prompt).toContain("### P1\nPhotograph: A woman is typing at a desk.");
+    expect(calls[4].by).toBe("claude-cli");
+    expect(calls[5].by).toBe("codex-cli");
+  });
+
+  it("sends proofreading faults back to the writer and reviews items the solver found ambiguous", async () => {
+    replies = [
+      () => JSON.stringify(fixtures.p3()),
+      () => JSON.stringify({ faults: [{ id: "C2.1", fault: "the times go backwards" }] }),
+      () => JSON.stringify(fixtures.p3()),
+      solve(undefined, ["C1.2"]),
+      () => JSON.stringify({ decisions: [{ id: "C1.2", action: "keep" }] }),
+    ];
+    const r = await generateToeic(settings, { units: ["p3"], target: "750", topics: "", speech: false, images: false });
+    expect(calls[2].prompt).toContain("- conversation 2 Q1: the times go backwards");
+    expect(calls[4].prompt).toContain("### C1.2");
+    expect(calls[4].prompt).toContain("(flagged as ambiguous)");
+    expect(r.reports[0]).toMatchObject({ proofed: 1, flagged: ["C1.2"], agreed: 39, total: 39, dropped: [] });
+    expect(reportLine(r.reports[0])).toBe("일치 39/39 · 애매 표시 1 · 교정 1");
+  });
+
+  it("takes a Part 6 text out whole when one of its blanks fails twice", async () => {
+    // The rewrite has three options, so it fails the format and is not checked again.
+    const rewrite = () => JSON.stringify({ items: [{ id: "X1.2", prompt: "x", options: ["a", "b", "c"], answer: "A" }] });
+    replies = [() => JSON.stringify(fixtures.p56()), clean, solve((id) => (id === "X1.2" ? "D" : undefined)), () => JSON.stringify({ decisions: [] }), rewrite];
+    const r = await generateToeic(settings, { units: ["p56"], target: "750", topics: "", speech: false, images: false });
+    expect(r.tests[0].passages.filter((p) => p.title?.startsWith("Part 6"))).toHaveLength(B[6].texts - 1);
+    expect(r.reports[0].dropped).toEqual(["X1.1", "X1.2", "X1.3", "X1.4"]);
+    expect(itemName("X1.2")).toBe("장문 1-(2)");
+    expect(calls).toHaveLength(5);
+  });
+
+  it("puts the official-site brief into the writer prompt", async () => {
+    replies = [() => JSON.stringify(fixtures.p4()), clean, solve()];
+    await generateToeic(settings, { units: ["p4"], target: "750", topics: "", speech: false, images: false, trend: ["", "# 최신 출제 동향 (공식 사이트 2026-10-29 확인)", "2016년 개정 구성 유지"] });
+    expect(calls[0].prompt).toContain("# 최신 출제 동향 (공식 사이트 2026-10-29 확인)\n2016년 개정 구성 유지");
+  });
+});
+
+describe("cues", () => {
+  it("flags a key that gives itself away by length or an all-of-the-above choice", () => {
+    expect(cues("single 1 Q1", ["A plan", "A cost", "The long-term benefits of shared regional transit", "A vote"], "C")).toEqual([
+      "single 1 Q1: the key is much longer than every distractor; balance the option lengths",
+    ]);
+    expect(cues("part5 Q1", ["comply", "compete", "compare", "none of the above"], "A")).toEqual(['part5 Q1: no "all/none of the above" options']);
+    expect(cues("part5 Q1", ["comply", "compete", "compare", "conflict"], "A")).toEqual([]);
+  });
+  it("sends a draft with a give-away back for a rewrite", () => {
+    const p56 = fixtures.p56();
+    p56.part5[0].options = ["at the desk", "in a box", "for the annual review", "to the office"];
+    expect(MEASURE.p56(PARSE.p56(p56))).toContain("part5 Q1: the key is much longer than every distractor; balance the option lengths");
   });
 });

@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { Check, FileUp, Loader2, Sparkles, Trash2 } from "lucide-react";
+import { AlertTriangle, Check, FileUp, Globe, Loader2, RefreshCw, ShieldCheck, Sparkles, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { errorText, geminiKeyStored, loadAiSettings, PROVIDERS } from "../lib/ai";
 import {
@@ -14,7 +14,8 @@ import {
   setReferenceDocEnabled,
   type ReferenceDoc,
 } from "../lib/repo";
-import { generateToeic, UNIT_LABEL, UNIT_PARTS, type ToeicGenReport, type ToeicStep, type ToeicUnit } from "../lib/toeicGen";
+import { generateToeic, reportLine, UNIT_LABEL, UNIT_PARTS, type ToeicGenReport, type ToeicStep, type ToeicUnit } from "../lib/toeicGen";
+import { loadTrendBrief, officialBrief, trendAgeDays, trendSection, type TrendBrief } from "../lib/trend";
 import type { Target } from "../lib/toeicSpec";
 import Hint from "./Hint";
 
@@ -37,8 +38,10 @@ const STEP_LABEL: Record<ToeicStep, string> = {
   write: "문제 쓰는 중",
   check: "실제 시험 형식과 출제 지침으로 측정",
   rewrite: "어긋난 부분을 고쳐 다시 쓰는 중",
-  solve: "정답을 가린 채 다시 풀어 보는 중",
-  fix: "풀이가 엇갈린 문항 검토",
+  proof: "다른 AI가 문법·사실 오류 교정",
+  solve: "다른 AI가 정답을 가린 채 풀어 보는 중",
+  fix: "풀이가 엇갈리거나 애매한 문항 검토",
+  refill: "뺀 문항을 다시 쓰고 다시 검증",
   media: "사진·음성 만드는 중",
   done: "완료",
 };
@@ -67,6 +70,8 @@ export default function ToeicGeneratePanel({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reports, setReports] = useState<ToeicGenReport[] | null>(null);
+  const [brief, setBrief] = useState<TrendBrief | null>(loadTrendBrief());
+  const [checking, setChecking] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const settings = loadAiSettings();
@@ -103,6 +108,17 @@ export default function ToeicGeneratePanel({
     refresh();
   };
 
+  const checkTrend = async (force: boolean) => {
+    setChecking(true);
+    try {
+      const b = await officialBrief(loadAiSettings(), force);
+      setBrief(b);
+      return b;
+    } finally {
+      setChecking(false);
+    }
+  };
+
   const run = async () => {
     setBusy(true);
     setError(null);
@@ -112,9 +128,11 @@ export default function ToeicGeneratePanel({
       const references = useRefs ? (await referenceMaterial()).text : "";
       const listening = units.some((u) => UNIT_PARTS[u][0] <= 4);
       const media = geminiKey === true && listening;
+      const checked = await checkTrend(false);
+      const trend = trendSection(checked);
       const result = await generateToeic(
         loadAiSettings(),
-        { units, target, topics, references, speech: media, images: media && units.includes("p12") },
+        { units, target, topics, references, speech: media, images: media && units.includes("p12"), trend },
         (unit, step) => setProgress((p) => ({ ...p, [unit]: step })),
       );
       const sourceId = await aiSourceId();
@@ -127,7 +145,16 @@ export default function ToeicGeneratePanel({
           band,
           provider: settings.provider,
           model: settings.models[settings.provider] ?? "",
-          options: { exam: "toeic", target, units, references: useRefs },
+          options: {
+            exam: "toeic",
+            target,
+            units,
+            references: useRefs,
+            trendCheckedAt: checked?.checkedAt ?? null,
+            verification: result.reports
+              .filter((r) => (t.kind === "listening") === (UNIT_PARTS[r.unit][0] <= 4))
+              .map((r) => ({ unit: r.unit, checker: r.checker, cross: r.cross, line: reportLine(r) })),
+          },
         });
         ids.push({ testId: id, skill: t.kind, ord: i });
       }
@@ -146,7 +173,8 @@ export default function ToeicGeneratePanel({
     }
   };
 
-  const calls = units.length * 3;
+  // write, proofread, blind solve, editor, and a rewrite or refill when needed; plus one read of the official sites.
+  const calls = units.length * 5 + 1;
   const needsVoice = units.some((u) => UNIT_PARTS[u][0] <= 4);
 
   return (
@@ -229,6 +257,38 @@ export default function ToeicGeneratePanel({
         </div>
       </div>
 
+      <div className={`trend-box${brief?.mismatch.length ? " warn" : ""}`}>
+        <div className="accent-row">
+          <Globe size={14} />
+          <b>최신 출제 동향</b>
+          <span className="muted small">
+            {brief ? `공식 사이트 ${brief.checkedAt.slice(0, 10)} 확인${trendAgeDays(brief) >= 7 ? " · 만들 때 다시 확인합니다" : ""}` : "아직 확인하지 않았습니다. 만들 때 공식 사이트를 먼저 읽습니다."}
+          </span>
+          <span className="spacer" />
+          <button className="btn small" disabled={busy || checking} onClick={() => void checkTrend(true).catch((e) => setError(errorText(e)))}>
+            {checking ? <Loader2 size={13} className="spin" /> : <RefreshCw size={13} />} 지금 확인
+          </button>
+        </div>
+        {brief && (
+          <>
+            <p className="small">{brief.summary}</p>
+            {brief.trends.length > 0 && (
+              <ul className="small">
+                {brief.trends.map((t) => (
+                  <li key={t}>{t}</li>
+                ))}
+              </ul>
+            )}
+            {brief.changes.length > 0 && <p className="small">공고된 변경: {brief.changes.join(" · ")}</p>}
+            {brief.mismatch.length > 0 && (
+              <p className="small warn-line">
+                <AlertTriangle size={13} /> 공식 사이트 내용이 앱의 시험 형식과 다릅니다: {brief.mismatch.join(" · ")} 앱 업데이트를 확인하세요.
+              </p>
+            )}
+          </>
+        )}
+      </div>
+
       <div className="toolbar gen-go">
         <button className="btn primary" disabled={busy || units.length === 0} onClick={() => void run()}>
           {busy ? <Loader2 size={14} className="spin" /> : <Sparkles size={14} />} {units.length === UNITS.length ? "200문항 한 회분 만들기" : "만들기"}
@@ -258,9 +318,17 @@ export default function ToeicGeneratePanel({
 
       {reports && (
         <div className="gen-report">
+          {reports[0] && (
+            <p className="small">
+              <ShieldCheck size={13} /> 검증: {reports[0].writer}가 쓰고{" "}
+              {reports[0].cross
+                ? `${reports[0].checker}가 따로 교정하고 정답을 가린 채 풀었습니다.`
+                : "같은 AI가 새 대화에서 교정하고 정답을 가린 채 풀었습니다. 다른 구독 CLI를 하나 더 로그인해 두면 교차 검증합니다."}
+            </p>
+          )}
           {reports.map((r) => (
             <p key={r.unit} className="muted">
-              {UNIT_LABEL[r.unit]}: 정답 고침 {r.rekeyed} · 제외 {r.dropped}
+              {UNIT_LABEL[r.unit]}: {reportLine(r)}
               {r.notes.length ? ` · 기준 미달: ${r.notes.join(" · ")}` : " · 형식 기준 통과"}
             </p>
           ))}
