@@ -1,6 +1,6 @@
 # 사용법 영상 다시 만들기
 
-`docs/media/toeicer-tour.mp4`(약 1분 25초)는 Linux의 가상 화면(Xvfb)에서 디버그 빌드를 자동으로 조작하며 녹화한 세 토막을 이어 붙인 영상입니다. 화면이 바뀌면 같은 방법으로 다시 만듭니다.
+`docs/media/toeicer-tour.mp4`(약 1분 7초)는 Linux의 가상 화면(Xvfb)에서 디버그 빌드를 자동으로 조작하며 녹화한 세 토막을 이어 붙인 영상입니다. 화면이 바뀌면 같은 방법으로 다시 만듭니다.
 
 1. **무료판**(`tour.sh reader`): 빈 데이터 폴더에서 시작 → 샘플(Listening Part 2–4 · Reading Part 5–7)이 저절로 들어감 → Reading Part 5·6·7 풀기 → 제출(12/16, Reading 360점 추정) → 인쇄 → 가이드 › 앱 사용법 → 세트 파일 열기
 2. **Studio 첫 실행**(`tour.sh studio`): 무료판 데이터를 그대로 둔 채 Studio를 켜면 세트와 학습 기록을 가져옴 → 만들기·가져오기(AI로 만들기, 붙여넣기·PDF). AI는 실행하지 않습니다.
@@ -31,3 +31,5 @@ run "TOEICER Studio" studio-edit
 ```
 
 `$OUT/scenes-<부분>.tsv`에 장면별 시작 시각과 자막이 남습니다. 세 녹화를 각각 `tour.sh` 시작 시점(ffmpeg 시작 약 1.1초 뒤)부터 마지막 장면까지 잘라 이어 붙이고, 1280×800으로 줄여 자막을 ffmpeg `drawtext`(Noto Sans CJK Bold 30px, 흰 글씨, 짙은 초록 `#0b4a35` 상자 0.92)로 입혔습니다. 인쇄 장면 두 개에는 `docs/media/toeicer-print-sample.pdf`의 1–2쪽(Reading 문제지)과 3–4쪽(OMR 답안지, 정답·채점표)을 짙은 초록 바탕에 나란히 놓은 그림을 덮었습니다. 클릭 좌표는 1600×1000 창 기준입니다. Listening 세트는 Windows 음성으로 읽어 주는데, 녹화한 Linux에는 그 음성이 없어 영상에서는 Reading만 풉니다.
+
+게시한 영상은 이렇게 만든 녹화본(약 1분 27초)을 장면마다 최대 1.45배 빠르게 돌려 약 1분 7초로 줄인 것입니다(자막은 장면마다 2.6초 안팎 이상 보임).
