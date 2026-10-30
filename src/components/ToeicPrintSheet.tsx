@@ -275,7 +275,8 @@ export default function ToeicPrintSheet({ test, mode, responses, results }: Prop
               <i>Directions:</i> {PART_DIRECTIONS[part]}
             </p>
           </div>
-          <div className={part === 5 || part === 2 ? "tk-cols" : ""}>
+          {/* Questions run in one column; only Part 2's answer-mark lines are short enough for two. */}
+          <div className={part === 2 ? "tk-cols" : ""}>
             {ps.map((p) => (
               <SetBlock key={p.id} p={p} part={part} />
             ))}
