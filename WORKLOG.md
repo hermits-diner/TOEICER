@@ -2,6 +2,14 @@
 
 ## 2026-10-31
 
+### 마이그레이션 SQL 줄바꿈을 CRLF로 고정 (TOEFLER `8fbac1f`와 같은 수정)
+
+- **무엇을 발견했는가**: TOEFLER에서 생긴 일이다. sqlx(tauri-plugin-sql)는 적용한 마이그레이션 SQL 바이트 전체의 SHA-384를 DB에 남기고, 다음 실행 때 같은 바이트인지 비교한다. `include_str!`로 넣는 SQL 파일은 저장소에 LF로 있지만 Windows에서 git으로 받으면 CRLF, 복사·압축 파일·리눅스 빌드로 옮기면 LF가 된다. 그래서 CRLF 빌드로 만든 DB를 LF 빌드가 "migration 1 was previously applied but has been modified"로 거절했다. 이 앱도 같은 코드라 같은 위험이 있었다. 이 PC에는 이 앱이 설치돼 있지 않고 `release.yml`(windows-latest) 실행 기록도 없다. 설치본이 있다면 Windows에서 git으로 받아 빌드한 것이라 CRLF로 기록돼 있다(같은 방식으로 빌드한 TOEFLER·IELTS 설치 DB가 모두 CRLF임을 확인).
+- **무엇을 했는가**: `migrations()`가 SQL 줄바꿈을 CRLF로 맞추게 하고, 1번 마이그레이션 체크섬을 고정하는 테스트를 넣었다. 고정값은 저장소 SQL을 CRLF로 바꾼 바이트의 SHA-384다.
+- **왜 CRLF인가**: 설치본을 만드는 두 경로(Windows git 체크아웃, `windows-latest` 릴리스)가 모두 CRLF를 만든다. LF로 고정하면 지금 설치된 DB가 열리지 않는다. 앞으로는 어떤 경로로 빌드해도 같은 바이트가 들어간다.
+- **어떻게 확인했는가**: `cargo test` — 30 passed, 2 ignored, 새 체크섬 고정 테스트 통과.
+- **하지 않기로 한 것**: `.gitattributes`로 SQL 줄바꿈을 정하는 방법은 쓰지 않았다. 압축 파일 다운로드나 복사처럼 git을 거치지 않는 경로는 막지 못한다.
+
 ### 생성한 문제는 설정에서 고른 CLI로만 검증
 
 - **무엇을 발견했는가**: AI 출제기는 검증자를 `ai.ts`의 `pickVerifier`로 골랐다. PC에 다른 구독 CLI(Codex·Antigravity)가 로그인돼 있으면 그 CLI가 교정과 블라인드 풀이를 맡고, 없을 때만 출제한 CLI의 새 대화를 썼다. 사용자 PC에서는 Codex가 로그인은 돼 있지만 답을 하지 못했다. 같은 구조인 TOEFLER에서 재현하니 설정된 모델로는 `400 model_not_found`(ChatGPT 계정에서 쓸 수 없는 모델)가, 그다음에는 `You've hit your usage limit ... try again at Nov 20th, 2026`(무료 사용 한도 소진)이 돌아왔다. 검증 호출이 실패하면 생성 전체가 멈추므로, Claude로는 쓸 수 있는데도 세트가 하나도 만들어지지 않았다. '로그인됨'만으로는 그 CLI가 실제로 답할 수 있는지 알 수 없다.

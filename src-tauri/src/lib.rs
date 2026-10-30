@@ -17,10 +17,13 @@ const DB_URL: &str = "sqlite:toeic.db";
 const SET_EXTS: [&str; 2] = ["toic", "toeicset"];
 
 fn migrations() -> Vec<Migration> {
+    // sqlx refuses a database whose recorded checksum differs from these exact bytes, and a git checkout on
+    // Windows turns LF into CRLF: pin CRLF (what installed databases recorded) so the checkout can't decide.
+    let schema = include_str!("../migrations/001_schema.sql").replace("\r\n", "\n").replace('\n', "\r\n");
     vec![Migration {
         version: 1,
         description: "schema",
-        sql: include_str!("../migrations/001_schema.sql"),
+        sql: Box::leak(schema.into_boxed_str()),
         kind: MigrationKind::Up,
     }]
 }
@@ -125,6 +128,13 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_first_migration_keeps_the_checksum_installed_databases_recorded() {
+        use sha2::{Digest, Sha384};
+        let sum: String = Sha384::digest(migrations()[0].sql.as_bytes()).iter().map(|b| format!("{b:02x}")).collect();
+        assert_eq!(sum, "6a351c3d9d40fe669e75a0345b16e6dd3ca6d0efb32030c8647bda8f460dcf8bac013be17e96ea8e15d2b52ba4d3ebab");
+    }
 
     #[test]
     fn picks_set_files_from_the_command_line() {
