@@ -11,7 +11,7 @@ import { getSetting, setSetting } from "./lib/appSettings";
 import { autoBackupIfDue } from "./lib/backup";
 import { STUDIO } from "./lib/edition";
 import { refreshCatalog } from "./lib/modelCatalog";
-import { installSamples } from "./lib/samples";
+import { installSamples, SAMPLES_VERSION } from "./lib/samples";
 import { applyPrefs, clampZoom, loadPrefs, savePrefs, ZOOM_STEP, type Prefs } from "./lib/theme";
 import Guide from "./pages/Guide";
 import Home from "./pages/Home";
@@ -86,11 +86,13 @@ function App() {
     // The model pickers show what the CLIs (and, with a key, Gemini) offer today; a CLI that is missing keeps its last list.
     refreshCatalog(loadAiSettings()).catch((e) => console.warn("model catalog refresh failed", e));
     if (__STUDIO__) void import("./lib/license").then((m) => m.refreshLicense());
-    // The built-in sets go into the library once, so there is something to try right away.
+    // The built-in sets go into the library once per version, so there is something to try right away; a failed
+    // install is tried again on the next start.
     void getSetting("samples_installed").then(async (done) => {
-      if (done) return;
-      await installSamples().catch((e) => console.warn("samples", e));
-      await setSetting("samples_installed", "1");
+      if (done === SAMPLES_VERSION) return;
+      await installSamples()
+        .then(() => setSetting("samples_installed", SAMPLES_VERSION))
+        .catch((e) => console.warn("samples", e));
     });
     // Set files double-clicked in Explorer: at start, and later ones handed over by a second launch.
     const show = (paths: string[]) => {

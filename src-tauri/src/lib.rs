@@ -86,6 +86,8 @@ pub fn run() {
             backup::restore_cancel,
             backup::restore_commit,
             backup::restore_prepare,
+            media::archive_sample_audio,
+            media::archive_sample_image,
             media::read_audio,
             media::read_image,
             mp3::save_audio_as,

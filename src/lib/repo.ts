@@ -36,6 +36,25 @@ export async function findSavedTest(t: ImportTest): Promise<number | null> {
   return row?.id ?? null;
 }
 
+/**
+ * Removes built-in sets that are no longer among `current` (an older version of a sample), as long as nobody has
+ * practised them: a set with an attempt or a note on one of its questions stays. Returns how many were removed.
+ */
+export async function removeOutdatedSamples(current: ImportTest[]): Promise<number> {
+  const db = await getDb();
+  const keep = new Set(await Promise.all(current.map((t) => sha256(JSON.stringify(t)))));
+  const rows = await db.select<{ id: number; content_hash: string | null }[]>(
+    `SELECT t.id, t.content_hash FROM test t JOIN source s ON s.id = t.source_id
+     WHERE s.adapter = 'sample'
+       AND NOT EXISTS (SELECT 1 FROM attempt a WHERE a.test_id = t.id)
+       AND NOT EXISTS (SELECT 1 FROM note n JOIN question q ON q.id = n.question_id JOIN question_group g ON g.id = q.group_id
+                       JOIN passage p ON p.id = g.passage_id WHERE p.test_id = t.id)`,
+  );
+  const old = rows.filter((r) => !r.content_hash || !keep.has(r.content_hash));
+  for (const r of old) await db.execute("DELETE FROM test WHERE id = $1", [r.id]);
+  return old.length;
+}
+
 /** Stores a validated import under where it came from. Returns the new test id. */
 export async function saveImportedTest(t: ImportTest, origin: Origin): Promise<number> {
   const db = await getDb();

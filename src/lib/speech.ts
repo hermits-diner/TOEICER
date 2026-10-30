@@ -1,5 +1,5 @@
 // Reads a listening script aloud with the voices built into Windows (WebView2 speechSynthesis), for sets that have
-// no recording: the built-in samples, and converted or shared sets whose audio was never made with Gemini.
+// no recording: converted or shared sets whose audio was never made with Gemini.
 
 export interface SpeechLine {
   text: string;

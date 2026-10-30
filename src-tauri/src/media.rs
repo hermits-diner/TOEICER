@@ -123,6 +123,30 @@ pub async fn read_audio(app: AppHandle, name: String) -> Result<tauri::ipc::Resp
     Ok(tauri::ipc::Response::new(bytes))
 }
 
+/// Keeps the speech of the built-in Listening set (an MP3 the app ships in public/sample-audio); returns its name.
+#[tauri::command]
+pub async fn archive_sample_audio(app: AppHandle, request: tauri::ipc::Request<'_>) -> Result<String, String> {
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
+        return Err("샘플 음성이 전달되지 않았습니다.".into());
+    };
+    if audio_ext(bytes) != Some("mp3") {
+        return Err("샘플 음성 형식이 올바르지 않습니다.".into());
+    }
+    archive_audio(&app, bytes)
+}
+
+/// Keeps a Part 1 photograph of the built-in Listening set (a WebP the app ships in public/sample-photos); returns its name.
+#[tauri::command]
+pub async fn archive_sample_image(app: AppHandle, request: tauri::ipc::Request<'_>) -> Result<String, String> {
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
+        return Err("샘플 사진이 전달되지 않았습니다.".into());
+    };
+    if image_ext(bytes) != Some("webp") {
+        return Err("샘플 사진 형식이 올바르지 않습니다.".into());
+    }
+    archive_image(&app, bytes)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
