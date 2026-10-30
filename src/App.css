@@ -635,11 +635,17 @@ body,
 .print-sheet { display: none; }
 
 @media print {
-  @page { margin: 16mm 14mm; }
+  /* WebView2 prints the page URL (tauri.localhost), date and title in the page margins; with no page margin it has
+     nowhere to put them. The sheet carries the margins instead, repeated on every page by box-decoration-break. */
+  @page { margin: 0; }
   html, body, #root { height: auto !important; overflow: visible !important; background: #fff !important; }
+  body { margin: 0 !important; }
   #root { display: none !important; }
   .print-sheet {
     display: block;
+    padding: 16mm 14mm;
+    -webkit-box-decoration-break: clone;
+    box-decoration-break: clone;
     color: #000;
     font: 11pt/1.55 Georgia, "Times New Roman", "Batang", serif;
     user-select: text;
