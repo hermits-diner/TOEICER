@@ -1,13 +1,13 @@
 // Writes original TOEIC Listening and Reading practice with the CLI the learner is signed in to, then checks it so
 // that no human review is needed: measure against the real part sizes and the item-writing rules (including option
-// give-aways) → rewrite once if they miss → an independent checker (another signed-in CLI when one exists)
-// proofreads the language and the internal facts of every script and text → the checker solves blind with the key
-// hidden (listening items from their scripts), flagging items it finds ambiguous → the editor keeps, rekeys or drops
-// each item the checker answered differently or flagged → dropped items are written once more and checked again →
-// keys spread over the letters → photos (Part 1) and speech (Parts 1–4) with Gemini → a Listening test (1–100) and a
-// Reading test (101–200), stored with the verification record.
+// give-aways) → rewrite once if they miss → an independent checker (a fresh conversation with the same CLI, so no
+// other CLI is ever called) proofreads the language and the internal facts of every script and text → the checker
+// solves blind with the key hidden (listening items from their scripts), flagging items it finds ambiguous → the
+// editor keeps, rekeys or drops each item the checker answered differently or flagged → dropped items are written
+// once more and checked again → keys spread over the letters → photos (Part 1) and speech (Parts 1–4) with Gemini →
+// a Listening test (1–100) and a Reading test (101–200), stored with the verification record.
 import { invoke } from "@tauri-apps/api/core";
-import { complete, pickVerifier, providerLabel, type AiSettings } from "./ai";
+import { complete, providerLabel, type AiSettings } from "./ai";
 import { extractJson } from "./json";
 import { guidelinesForPrompt, optionProblems } from "./itemGuidelines";
 import { BLUEPRINT, specForPrompt, TARGET_TEXT, type Target, type ToeicPart } from "./toeicSpec";
@@ -44,7 +44,8 @@ export type ToeicStep = "write" | "check" | "rewrite" | "proof" | "solve" | "fix
 
 export interface ToeicGenReport {
   unit: ToeicUnit;
-  /** CLI that wrote and CLI that checked, and whether they differ. */
+  /** CLI that wrote and CLI that checked: always the same one now, so `cross` is false (sets made before were
+   *  checked by another signed-in CLI and keep `cross: true` in their records). */
   writer: string;
   checker: string;
   cross: boolean;
@@ -838,20 +839,16 @@ export async function generateToeic(
   o: ToeicGenOptions,
   onProgress: (unit: ToeicUnit | "media", step: ToeicStep) => void = () => {},
 ): Promise<{ tests: ImportTest[]; reports: ToeicGenReport[] }> {
-  const verifier = await pickVerifier(settings);
-  const names = {
-    writer: providerLabel(settings.provider),
-    checker: providerLabel(verifier.settings.provider),
-    cross: verifier.cross,
-  };
+  const writer = providerLabel(settings.provider);
+  const names = { writer, checker: writer, cross: false };
   const drafts: Partial<Draft> = {};
   const reports: ToeicGenReport[] = [];
   for (const unit of ORDER.filter((u) => o.units.includes(u))) {
     const step = (s: ToeicStep) => onProgress(unit, s);
     const written = await writeUnit(settings, unit, o, step);
-    const { draft, notes, proofed } = await proofUnit(settings, verifier.settings, unit, o, written, step);
-    const checked = await verify(verifier.settings, unit, draft, step);
-    const { replaced, refilled } = await refill(settings, verifier.settings, unit, o, draft, checked.dropped, step);
+    const { draft, notes, proofed } = await proofUnit(settings, settings, unit, o, written, step);
+    const checked = await verify(settings, unit, draft, step);
+    const { replaced, refilled } = await refill(settings, settings, unit, o, draft, checked.dropped, step);
     const dropped = edit(unit, draft, (id, item) => replaced.get(id) ?? (checked.dropped.includes(id) ? null : item));
     (drafts as Record<ToeicUnit, unknown>)[unit] = draft;
     reports.push({

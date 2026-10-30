@@ -27,7 +27,7 @@ TOEIC Listening and Reading을 대비하는 Windows 데스크톱 앱입니다. �
 ### Studio: AI로 200문항 한 회분 만들기
 - PC에 구독 계정으로 로그인한 **Claude Code**(Claude Pro·Max), **Codex CLI**(ChatGPT Plus·Pro), **Antigravity CLI**(Google 계정)를 앱이 실행합니다.
 - 만들기 전에 공식 사이트(한국 TOEIC 위원회, ETS)를 읽어 최신 시험 구성을 출제 지시에 넣고, 앱의 형식과 다르면 경고합니다.
-- 파트별로 쓰기 → 실제 시험의 문항 수·선택지 수·빈칸 표시·길이로 측정 → 어긋나면 다시 쓰기 → 다른 CLI의 독립 교정 → 정답을 가린 블라인드 풀이 → 엇갈린 문항은 정답 수정 또는 제외 → 뺀 문항 다시 쓰고 재검증 → **Gemini로 Part 1 사진과 Listening 음성** → Listening(1–100)·Reading(101–200) 두 세트로 저장. 검증 기록은 세트 파일에 함께 남습니다.
+- 파트별로 쓰기 → 실제 시험의 문항 수·선택지 수·빈칸 표시·길이로 측정 → 어긋나면 다시 쓰기 → 같은 AI의 새 대화로 독립 교정(다른 CLI는 쓰지 않음) → 정답을 가린 블라인드 풀이 → 엇갈린 문항은 정답 수정 또는 제외 → 뺀 문항 다시 쓰고 재검증 → **Gemini로 Part 1 사진과 Listening 음성** → Listening(1–100)·Reading(101–200) 두 세트로 저장. 검증 기록은 세트 파일에 함께 남습니다.
 - 목표 점수 600+ · 750+ · 900+로 난이도 구성 조절, 상황·업종 지정. 가지고 있는 공식 자료(PDF·텍스트)를 참고자료로 넣으면 이 PC에만 저장하고 형식·난이도 기준으로만 씁니다.
 - 근거와 근사치는 [docs/toeic-sources.md](docs/toeic-sources.md).
 

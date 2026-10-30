@@ -1,8 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
-const { isCli, loadAiSettings, pickVerifier, PROVIDERS, SUGGESTED_MODELS } = await import("./ai");
-const { invoke } = await import("@tauri-apps/api/core");
+const { isCli, loadAiSettings, PROVIDERS, SUGGESTED_MODELS } = await import("./ai");
 
 describe("CLI providers", () => {
   it("are the only text providers and have suggested models", () => {
@@ -50,15 +49,5 @@ describe("CLI providers", () => {
     } finally {
       vi.unstubAllGlobals();
     }
-  });
-});
-
-describe("pickVerifier", () => {
-  it("checks with another signed-in CLI, else the writer's own", async () => {
-    const s = loadAiSettings();
-    vi.mocked(invoke).mockImplementation(async (_cmd, args) => ({ loggedIn: (args as { provider: string }).provider === "antigravity-cli" }));
-    expect(await pickVerifier(s)).toMatchObject({ cross: true, settings: { provider: "antigravity-cli" } });
-    vi.mocked(invoke).mockRejectedValue("not installed");
-    expect(await pickVerifier(s)).toMatchObject({ cross: false, settings: { provider: "claude-cli" } });
   });
 });

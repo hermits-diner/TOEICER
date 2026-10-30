@@ -12,7 +12,6 @@ vi.mock("./ai", () => ({
     if (!next) throw new Error("unexpected AI call");
     return { text: next(system, prompt), model: "fake", inputTokens: null, outputTokens: null };
   }),
-  pickVerifier: vi.fn(async (s: { provider: string }) => ({ settings: { ...s, provider: "codex-cli" }, cross: true })),
   providerLabel: (id: string) => id,
 }));
 vi.mock("./tts", () => ({
@@ -122,9 +121,9 @@ describe("generateToeic", () => {
     const p7 = (u: "p7s" | "p7m") => solve(() => (u === "p7s" ? "D" : "B"));
     replies = (["p12", "p3", "p4", "p56", "p7s", "p7m"] as const).flatMap((u) => [() => JSON.stringify(fixtures[u]()), clean, u === "p7s" || u === "p7m" ? p7(u) : solve()]);
     const r = await generateToeic(settings, { units: ["p12", "p3", "p4", "p56", "p7s", "p7m"], target: "750", topics: "", speech: true, images: true });
-    // The writer writes; the other CLI proofreads and solves.
-    expect(calls.map((c) => c.by).slice(0, 3)).toEqual(["claude-cli", "codex-cli", "codex-cli"]);
-    expect(r.reports[0]).toMatchObject({ writer: "claude-cli", checker: "codex-cli", cross: true, total: 31, agreed: 31, flagged: [], proofed: 0 });
+    // The chosen CLI writes, then proofreads and solves in fresh conversations; no other CLI is called.
+    expect(new Set(calls.map((c) => c.by))).toEqual(new Set(["claude-cli"]));
+    expect(r.reports[0]).toMatchObject({ writer: "claude-cli", checker: "claude-cli", cross: false, total: 31, agreed: 31, flagged: [], proofed: 0 });
     expect(calls[0].prompt).toContain("at least 30% of the items");
     // Listening items are solved from their scripts.
     expect(calls[2].prompt).toContain("Photograph: A woman is typing at a desk.");
@@ -175,8 +174,8 @@ describe("generateToeic", () => {
     expect(r.tests[0].passages[0].groups[0].instructions).toContain("Two men are carrying a box.");
     expect(r.reports[0]).toMatchObject({ refilled: ["P1"], dropped: [] });
     expect(calls[4].prompt).toContain("### P1\nPhotograph: A woman is typing at a desk.");
-    expect(calls[4].by).toBe("claude-cli");
-    expect(calls[5].by).toBe("codex-cli");
+    // The rewrite and its second check also go to the chosen CLI.
+    expect(new Set(calls.map((c) => c.by))).toEqual(new Set(["claude-cli"]));
   });
 
   it("sends proofreading faults back to the writer and reviews items the solver found ambiguous", async () => {

@@ -147,22 +147,3 @@ export const errorText = (e: unknown) =>
   typeof e === "string" ? e : e instanceof Error ? e.message : String(e);
 
 export const providerLabel = (id: ProviderId): string => PROVIDERS.find((p) => p.id === id)?.label ?? id;
-
-/** The independent checker behind the writer: a different signed-in CLI when one is on this PC, else the
- *  writer's own CLI. A second model solving blind catches the errors a model repeats when it checks itself. */
-export interface Verifier {
-  settings: AiSettings;
-  /** Whether the checker really is another CLI. */
-  cross: boolean;
-}
-
-export async function pickVerifier(s: AiSettings): Promise<Verifier> {
-  for (const id of PROVIDERS.map((p) => p.id).filter((p) => p !== s.provider)) {
-    try {
-      if ((await cliStatus(s, id)).loggedIn) return { settings: { ...s, provider: id }, cross: true };
-    } catch {
-      // not installed
-    }
-  }
-  return { settings: s, cross: false };
-}

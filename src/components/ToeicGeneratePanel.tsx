@@ -307,10 +307,7 @@ export default function ToeicGeneratePanel({ onCreated }: { onCreated: (testId: 
         <div className="gen-report">
           {reports[0] && (
             <p className="small">
-              <ShieldCheck size={13} /> 검증: {reports[0].writer}가 쓰고{" "}
-              {reports[0].cross
-                ? `${reports[0].checker}가 따로 교정하고 정답을 가린 채 풀었습니다.`
-                : "같은 AI가 새 대화에서 교정하고 정답을 가린 채 풀었습니다. 다른 구독 CLI를 하나 더 로그인해 두면 교차 검증합니다."}
+              <ShieldCheck size={13} /> 검증: {reports[0].writer}가 쓰고 같은 AI가 새 대화에서 교정하고 정답을 가린 채 풀었습니다.
             </p>
           )}
           {reports.map((r) => (
