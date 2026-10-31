@@ -50,6 +50,30 @@ fn set_files(args: impl IntoIterator<Item = String>) -> Vec<String> {
         .collect()
 }
 
+/// A migration as sqlx records it in `_sqlx_migrations`: its version and the SHA-384 of its SQL, in hex.
+#[derive(serde::Serialize)]
+struct MigrationSum {
+    version: i64,
+    checksum: String,
+}
+
+/// The checksums this build's migrations have. A backup is checked against them before it may replace the live
+/// database, because sqlx refuses to open one that recorded another checksum (another app's, or another build's).
+#[tauri::command]
+fn migration_checksums() -> Vec<MigrationSum> {
+    use sha2::{Digest, Sha384};
+    static SUMS: std::sync::OnceLock<Vec<(i64, String)>> = std::sync::OnceLock::new();
+    SUMS.get_or_init(|| {
+        migrations()
+            .iter()
+            .map(|m| (m.version, Sha384::digest(m.sql.as_bytes()).iter().map(|b| format!("{b:02x}")).collect()))
+            .collect()
+    })
+    .iter()
+    .map(|(version, checksum)| MigrationSum { version: *version, checksum: checksum.clone() })
+    .collect()
+}
+
 /// Set files the app was started with, handed to the page once it asks.
 struct Opened(Mutex<Vec<String>>);
 
@@ -100,6 +124,7 @@ pub fn run() {
             backup::restore_prepare,
             cli::ai_cancel_job,
             cli::ai_end_job,
+            migration_checksums,
             media::archive_sample_audio,
             media::archive_sample_image,
             media::read_audio,
@@ -158,6 +183,9 @@ mod tests {
             (2, "3941775c3aa9434b5db96783ad79b98b65c69dbfa6267edcc183e432594d3d7d0e2aa920bf2a9ca87161b58805850499"),
         ];
         assert_eq!(sums, pinned.map(|(v, s)| (v, s.to_string())).to_vec());
+        // What the restore check compares a backup with is exactly these.
+        let told: Vec<(i64, String)> = migration_checksums().into_iter().map(|m| (m.version, m.checksum)).collect();
+        assert_eq!(told, sums);
     }
 
     #[test]

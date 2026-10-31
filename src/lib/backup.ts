@@ -79,14 +79,34 @@ export interface RestorePreview {
   attempts: number;
 }
 
+/** A migration as sqlx records it: its version and the SHA-384 of its SQL, in hex. */
+export interface MigrationSum {
+  version: number;
+  checksum: string;
+}
+
+export const FOREIGN_BACKUP = "다른 앱(또는 다른 버전)의 백업이라 복원할 수 없습니다.";
+
+/**
+ * Whether every migration a database recorded is one of this build's, with the same checksum. sqlx refuses to open a
+ * database whose recorded checksum differs, so restoring one (another app's backup with the same table names, or a
+ * build whose migration changed) would leave every screen failing after the restart. Fewer migrations are fine: the
+ * next start runs the missing ones. None at all is not a database this app made (it records migration 1 on creation).
+ */
+export function matchesMigrations(applied: MigrationSum[], expected: MigrationSum[]): boolean {
+  const pinned = new Map(expected.map((m) => [m.version, m.checksum.toLowerCase()]));
+  return applied.length > 0 && applied.every((m) => pinned.get(m.version) === m.checksum.toLowerCase());
+}
+
 /** Unpacks a backup to the staging folder and reads it, without touching the live data. */
 export async function prepareRestore(source: string): Promise<RestorePreview> {
   const staged = await invoke<string>("restore_prepare", { source });
   let db: Database | null = null;
   try {
     db = await Database.load(`sqlite:${staged}`);
-    const [m] = await db.select<{ v: number | null }[]>("SELECT MAX(version) AS v FROM _sqlx_migrations");
-    if ((m?.v ?? 0) > MAX_MIGRATION) throw new Error("더 새로운 버전의 앱에서 만든 백업입니다. 앱을 먼저 업데이트해 주십시오.");
+    const applied = await db.select<MigrationSum[]>("SELECT version, lower(hex(checksum)) AS checksum FROM _sqlx_migrations ORDER BY version");
+    if (applied.some((m) => m.version > MAX_MIGRATION)) throw new Error("더 새로운 버전의 앱에서 만든 백업입니다. 앱을 먼저 업데이트해 주십시오.");
+    if (!matchesMigrations(applied, await invoke<MigrationSum[]>("migration_checksums"))) throw new Error(FOREIGN_BACKUP);
     const count = async (sql: string) => (await db!.select<{ n: number }[]>(sql))[0]?.n ?? 0;
     const tests = await count("SELECT COUNT(*) AS n FROM test");
     const attempts = await count("SELECT COUNT(*) AS n FROM attempt");
@@ -96,6 +116,7 @@ export async function prepareRestore(source: string): Promise<RestorePreview> {
     db = null;
     await invoke("restore_cancel");
     const msg = e instanceof Error ? e.message : String(e);
+    if (msg.includes("no such table: _sqlx_migrations")) throw new Error(FOREIGN_BACKUP);
     throw new Error(msg.includes("no such table") ? `${BRAND.appName} 앱의 백업이 아닙니다.` : msg);
   } finally {
     await db?.close().catch(() => {});
