@@ -7,7 +7,7 @@
 // once more and checked again → keys spread over the letters → photos (Part 1) and speech (Parts 1–4) with Gemini →
 // a Listening test (1–100) and a Reading test (101–200), stored with the verification record.
 import { invoke } from "@tauri-apps/api/core";
-import { complete, providerLabel, type AiSettings } from "./ai";
+import { CANCELLED, complete, providerLabel, type AiSettings } from "./ai";
 import { extractJson } from "./json";
 import { guidelinesForPrompt, optionProblems } from "./itemGuidelines";
 import { BLUEPRINT, specForPrompt, TARGET_TEXT, type Target, type ToeicPart } from "./toeicSpec";
@@ -499,12 +499,41 @@ export function proofPrompt(items: Keyed[]): string {
 
 type Verdict = { action: "keep" | "rekey" | "drop"; answer: string };
 
+/** Which generation job a run belongs to (src/lib/toeicJob.ts) and the signal its cancel raises. */
+export interface ToeicGenControl {
+  job?: string;
+  signal?: AbortSignal;
+}
+
+/** How a run calls the CLI: every call carries the job id, so cancelling the job ends the CLI it is waiting on, and
+ *  no call starts (or is used) once the job is cancelled. */
+interface Run {
+  ask: (s: AiSettings, system: string, prompt: string) => Promise<string>;
+  /** Throws the cancellation once the job is cancelled. */
+  stop: () => void;
+}
+
+function runOf(c: ToeicGenControl): Run {
+  const stop = () => {
+    if (c.signal?.aborted) throw new Error(CANCELLED);
+  };
+  return {
+    stop,
+    ask: async (s, system, prompt) => {
+      stop();
+      const r = await complete(s, system, prompt, { job: c.job, signal: c.signal });
+      stop();
+      return r.text;
+    },
+  };
+}
+
 /** Blind solve, then the editor on every disagreement or flag. Every item gets a verdict. */
-async function check(checker: AiSettings, items: Keyed[], step: (s: ToeicStep) => void) {
+async function check(run: Run, checker: AiSettings, items: Keyed[], step: (s: ToeicStep) => void) {
   const verdicts = new Map<string, Verdict>(items.map((i) => [i.id, { action: "keep", answer: i.item.answer }]));
   if (!items.length) return { verdicts, flagged: [] as string[], agreed: 0 };
   step("solve");
-  const raw = obj(extractJson((await complete(checker, SOLVER_SYSTEM, solverPrompt(items))).text));
+  const raw = obj(extractJson(await run.ask(checker, SOLVER_SYSTEM, solverPrompt(items))));
   const solved = Object.fromEntries(Object.entries(obj(raw.answers)).map(([k, v]) => [k, str(v).toUpperCase().slice(0, 1)]));
   const flagged = arr(raw.unsure)
     .map((x) => str(typeof x === "number" ? String(x) : x))
@@ -515,7 +544,7 @@ async function check(checker: AiSettings, items: Keyed[], step: (s: ToeicStep) =
   if (!review.length) return { verdicts, flagged, agreed };
   step("fix");
   const decided = new Map(
-    arr(obj(extractJson((await complete(checker, FIX_SYSTEM, fixPrompt(review, solved, flagged))).text)).decisions).map((d) => [
+    arr(obj(extractJson(await run.ask(checker, FIX_SYSTEM, fixPrompt(review, solved, flagged)))).decisions).map((d) => [
       str(obj(d).id),
       { action: str(obj(d).action), answer: str(obj(d).answer).toUpperCase().slice(0, 1) },
     ]),
@@ -534,6 +563,7 @@ async function check(checker: AiSettings, items: Keyed[], step: (s: ToeicStep) =
 /** The checker reads every script and text for language faults and internal contradictions; faults send the unit
  *  back to the writer once, and the rewrite stands if it meets the format at least as well. */
 async function proofUnit<U extends ToeicUnit>(
+  run: Run,
   writer: AiSettings,
   checker: AiSettings,
   unit: U,
@@ -542,26 +572,27 @@ async function proofUnit<U extends ToeicUnit>(
   step: (s: ToeicStep) => void,
 ) {
   step("proof");
-  const faults = arr(obj(extractJson((await complete(checker, PROOF_SYSTEM, proofPrompt(slots(unit, w.draft)))).text)).faults)
+  const faults = arr(obj(extractJson(await run.ask(checker, PROOF_SYSTEM, proofPrompt(slots(unit, w.draft))))).faults)
     .map((f) => ({ id: str(obj(f).id), fault: str(obj(f).fault) }))
     .filter((f) => f.fault);
   if (!faults.length) return { ...w, proofed: 0 };
   try {
     const parse = PARSE[unit] as (r: unknown) => Draft[U];
     const measure = MEASURE[unit] as (d: Draft[U]) => string[];
-    const again = parse(extractJson((await complete(writer, WRITER_SYSTEM, writerPrompt(unit, o, faults.map((f) => `${writerLabel(unit, f.id)}: ${f.fault}`)))).text));
+    const again = parse(extractJson(await run.ask(writer, WRITER_SYSTEM, writerPrompt(unit, o, faults.map((f) => `${writerLabel(unit, f.id)}: ${f.fault}`)))));
     const notes = measure(again);
     if (notes.length <= w.notes.length) return { draft: again, notes, proofed: faults.length };
   } catch {
+    run.stop();
     /* the draft stands; the blind solve still guards the keys */
   }
   return { ...w, proofed: faults.length };
 }
 
 /** Blind solve and editor over a whole unit: rekeys apply at once, drops are returned for the refill. */
-async function verify(checker: AiSettings, unit: ToeicUnit, draft: Draft[ToeicUnit], step: (s: ToeicStep) => void) {
+async function verify(run: Run, checker: AiSettings, unit: ToeicUnit, draft: Draft[ToeicUnit], step: (s: ToeicStep) => void) {
   const items = slots(unit, draft);
-  const { verdicts, flagged, agreed } = await check(checker, items, step);
+  const { verdicts, flagged, agreed } = await check(run, checker, items, step);
   let rekeyed = 0;
   edit(unit, draft, (id, item) => {
     const v = verdicts.get(id);
@@ -604,6 +635,7 @@ export function refillPrompt(unit: ToeicUnit, items: Keyed[], o: ToeicGenOptions
 
 /** Dropped items are written once more and checked again; what fails twice stays out of the test. */
 async function refill(
+  run: Run,
   writer: AiSettings,
   checker: AiSettings,
   unit: ToeicUnit,
@@ -617,7 +649,7 @@ async function refill(
   if (!old.length) return { replaced, refilled: [] };
   step("refill");
   try {
-    const raw = arr(obj(extractJson((await complete(writer, WRITER_SYSTEM, refillPrompt(unit, old, o))).text)).items);
+    const raw = arr(obj(extractJson(await run.ask(writer, WRITER_SYSTEM, refillPrompt(unit, old, o)))).items);
     const fresh: Keyed[] = [];
     for (const r of raw) {
       const was = old.find((i) => i.id === str(obj(r).id));
@@ -643,13 +675,14 @@ async function refill(
       if (!faults.length) fresh.push({ ...was, item });
     }
     if (!fresh.length) return { replaced, refilled: [] };
-    const { verdicts } = await check(checker, fresh, () => {});
+    const { verdicts } = await check(run, checker, fresh, () => {});
     for (const f of fresh) {
       const v = verdicts.get(f.id);
       if (!v || v.action === "drop") continue;
       replaced.set(f.id, v.action === "rekey" ? { ...f.item, answer: v.answer } : f.item);
     }
   } catch {
+    run.stop();
     /* the drops stand */
   }
   return { replaced, refilled: [...replaced.keys()] };
@@ -808,23 +841,24 @@ export function readingTest(d: Partial<Draft>, title: string): ImportTest {
 
 /* ---------- Pipeline ---------- */
 
-async function writeUnit<U extends ToeicUnit>(settings: AiSettings, unit: U, o: ToeicGenOptions, step: (s: ToeicStep) => void) {
+async function writeUnit<U extends ToeicUnit>(run: Run, settings: AiSettings, unit: U, o: ToeicGenOptions, step: (s: ToeicStep) => void) {
   step("write");
   const parse = PARSE[unit] as (r: unknown) => Draft[U];
   const measure = MEASURE[unit] as (d: Draft[U]) => string[];
-  let draft = parse(extractJson((await complete(settings, WRITER_SYSTEM, writerPrompt(unit, o))).text));
+  let draft = parse(extractJson(await run.ask(settings, WRITER_SYSTEM, writerPrompt(unit, o))));
   step("check");
   let notes = measure(draft);
   if (notes.length) {
     step("rewrite");
     try {
-      const again = parse(extractJson((await complete(settings, WRITER_SYSTEM, writerPrompt(unit, o, notes))).text));
+      const again = parse(extractJson(await run.ask(settings, WRITER_SYSTEM, writerPrompt(unit, o, notes))));
       const againNotes = measure(again);
       if (againNotes.length <= notes.length) {
         draft = again;
         notes = againNotes;
       }
     } catch {
+      run.stop();
       /* a malformed rewrite is ignored; the first draft stands */
     }
   }
@@ -833,22 +867,26 @@ async function writeUnit<U extends ToeicUnit>(settings: AiSettings, unit: U, o: 
 
 export const geminiImage = (model: string, prompt: string) => invoke<string>("ai_image", { req: { model, prompt } });
 
-/** Writes and checks the chosen units, then returns a Listening test and/or a Reading test. */
+/** Writes and checks the chosen units, then returns a Listening test and/or a Reading test. With `control`, every
+ *  CLI call belongs to that job, and the run stops with the cancellation once the job's signal is raised (also
+ *  between photographs and speech clips, which are Gemini calls the CLI registry does not see). */
 export async function generateToeic(
   settings: AiSettings,
   o: ToeicGenOptions,
   onProgress: (unit: ToeicUnit | "media", step: ToeicStep) => void = () => {},
+  control: ToeicGenControl = {},
 ): Promise<{ tests: ImportTest[]; reports: ToeicGenReport[] }> {
+  const run = runOf(control);
   const writer = providerLabel(settings.provider);
   const names = { writer, checker: writer, cross: false };
   const drafts: Partial<Draft> = {};
   const reports: ToeicGenReport[] = [];
   for (const unit of ORDER.filter((u) => o.units.includes(u))) {
     const step = (s: ToeicStep) => onProgress(unit, s);
-    const written = await writeUnit(settings, unit, o, step);
-    const { draft, notes, proofed } = await proofUnit(settings, settings, unit, o, written, step);
-    const checked = await verify(settings, unit, draft, step);
-    const { replaced, refilled } = await refill(settings, settings, unit, o, draft, checked.dropped, step);
+    const written = await writeUnit(run, settings, unit, o, step);
+    const { draft, notes, proofed } = await proofUnit(run, settings, settings, unit, o, written, step);
+    const checked = await verify(run, settings, unit, draft, step);
+    const { replaced, refilled } = await refill(run, settings, settings, unit, o, draft, checked.dropped, step);
     const dropped = edit(unit, draft, (id, item) => replaced.get(id) ?? (checked.dropped.includes(id) ? null : item));
     (drafts as Record<ToeicUnit, unknown>)[unit] = draft;
     reports.push({
@@ -880,13 +918,16 @@ export async function generateToeic(
     if (o.speech || o.images) {
       onProgress("media", "media");
       for (const job of o.images ? images : []) {
+        run.stop();
         const name = await geminiImage(settings.imageModel, job.prompt);
         test.passages[job.passage].groups[0].image = name;
       }
       for (const job of o.speech ? audio : []) {
+        run.stop();
         const r = await geminiSynthesize(settings.ttsModel, job.turns, assignGeminiVoices(job.speakers));
         test.passages[job.passage].audio = r.name;
       }
+      run.stop();
       onProgress("media", "done");
     }
     tests.push(test);

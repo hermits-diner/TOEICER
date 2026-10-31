@@ -1,6 +1,10 @@
 import { BookOpen, Compass, FolderOpen, House, LineChart, Settings, Sparkles, type LucideIcon } from "lucide-react";
+import { lazy, Suspense } from "react";
 import { BRAND } from "../lib/brand";
 import { STUDIO } from "../lib/edition";
+
+// Studio's AI generation job on every page; a Reader build leaves it (and the generator behind it) out.
+const GenJobBadge = __STUDIO__ ? lazy(() => import("./GenJobBadge")) : null;
 
 export type PageId = "home" | "library" | "ai" | "review" | "import" | "guide" | "settings";
 
@@ -30,7 +34,19 @@ const groups: { heading: string; items: Item[] }[] = [
   },
 ];
 
-export default function Sidebar({ active, onSelect }: { active: PageId; onSelect: (id: PageId) => void }) {
+export default function Sidebar({
+  active,
+  onSelect,
+  onOpenGeneration,
+  onOpenTest,
+}: {
+  active: PageId;
+  onSelect: (id: PageId) => void;
+  /** Studio: the AI generation page, from the job indicator. */
+  onOpenGeneration?: () => void;
+  /** Studio: a set a finished generation job made. */
+  onOpenTest?: (testId: number) => void;
+}) {
   return (
     <nav className="sidebar">
       <div className="sidebar-scroll">
@@ -46,6 +62,11 @@ export default function Sidebar({ active, onSelect }: { active: PageId; onSelect
           </div>
         ))}
       </div>
+      {GenJobBadge && onOpenGeneration && onOpenTest && (
+        <Suspense fallback={null}>
+          <GenJobBadge onOpenPage={onOpenGeneration} onOpenTest={onOpenTest} />
+        </Suspense>
+      )}
       <div className="sidebar-foot">
         <button className={`icon-btn${active === "settings" ? " on" : ""}`} title="설정" aria-label="설정" onClick={() => onSelect("settings")}>
           <Settings size={16} />

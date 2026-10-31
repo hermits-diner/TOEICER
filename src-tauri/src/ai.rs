@@ -128,6 +128,9 @@ pub struct CompleteRequest {
     speed: String,
     system: String,
     prompt: String,
+    /// The generation job the call belongs to, so cancelling the job ends this CLI (src/lib/jobStore.ts).
+    #[serde(default)]
+    job: Option<String>,
 }
 
 #[derive(Serialize, Default, Debug)]
@@ -147,7 +150,7 @@ pub async fn ai_complete(req: CompleteRequest) -> Result<CompleteResult, String>
     }
     // An empty model name uses the CLI's own default.
     let tuning = crate::cli::Tuning { effort: req.effort.clone(), speed: req.speed.clone() };
-    let r = crate::cli::complete(&req.provider, req.cli_path.as_deref(), &req.model, &tuning, &req.system, &req.prompt).await?;
+    let r = crate::cli::complete(&req.provider, req.cli_path.as_deref(), &req.model, &tuning, &req.system, &req.prompt, req.job.as_deref()).await?;
     let out = CompleteResult { text: r.text, model: r.model, input_tokens: r.input_tokens, output_tokens: r.output_tokens };
     if out.text.trim().is_empty() {
         return Err("모델이 빈 답변을 보냈습니다.".into());

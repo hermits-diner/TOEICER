@@ -1,7 +1,44 @@
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
-const { isCli, loadAiSettings, PROVIDERS, SUGGESTED_MODELS } = await import("./ai");
+const invoke = vi.hoisted(() => vi.fn());
+vi.mock("@tauri-apps/api/core", () => ({ invoke }));
+const { cancelJob, complete, endJob, isCli, loadAiSettings, PROVIDERS, SUGGESTED_MODELS } = await import("./ai");
+
+describe("complete", () => {
+  const s = {
+    provider: "claude-cli",
+    models: { "claude-cli": "opus" },
+    cliPaths: { "claude-cli": "" },
+    effort: {},
+    speed: {},
+  } as never;
+
+  it("ties a generation job's call to the job and leaves other calls untagged", async () => {
+    invoke.mockReset().mockResolvedValue({ text: "ok" });
+    await complete(s, "sys", "hi", { job: "job-1" });
+    await complete(s, "sys", "hi");
+    expect(invoke.mock.calls[0]).toEqual(["ai_complete", { req: expect.objectContaining({ provider: "claude-cli", model: "opus", job: "job-1" }) }]);
+    expect(invoke.mock.calls[1][1].req).not.toHaveProperty("job");
+  });
+
+  it("starts nothing for a job that is already cancelled", async () => {
+    invoke.mockReset().mockResolvedValue({ text: "ok" });
+    const c = new AbortController();
+    c.abort();
+    await expect(complete(s, "sys", "hi", { job: "job-1", signal: c.signal })).rejects.toThrow("취소했습니다.");
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it("cancels and forgets jobs through the app", async () => {
+    invoke.mockReset().mockResolvedValue(undefined);
+    await cancelJob("job-1");
+    await endJob("job-1");
+    expect(invoke.mock.calls).toEqual([
+      ["ai_cancel_job", { job: "job-1" }],
+      ["ai_end_job", { job: "job-1" }],
+    ]);
+  });
+});
 
 describe("CLI providers", () => {
   it("are the only text providers and have suggested models", () => {

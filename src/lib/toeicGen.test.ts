@@ -2,12 +2,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { validateImport } from "./importFormat";
 import { BLUEPRINT as B } from "./toeicSpec";
 
-const calls: { by: string; system: string; prompt: string }[] = [];
+const calls: { by: string; system: string; prompt: string; job?: string }[] = [];
 let replies: ((system: string, prompt: string) => string)[] = [];
 
 vi.mock("./ai", () => ({
-  complete: vi.fn(async (s: { provider?: string }, system: string, prompt: string) => {
-    calls.push({ by: s.provider ?? "", system, prompt });
+  CANCELLED: "취소했습니다.",
+  complete: vi.fn(async (s: { provider?: string }, system: string, prompt: string, opts?: { job?: string }) => {
+    calls.push({ by: s.provider ?? "", system, prompt, job: opts?.job });
     const next = replies.shift();
     if (!next) throw new Error("unexpected AI call");
     return { text: next(system, prompt), model: "fake", inputTokens: null, outputTokens: null };
@@ -22,6 +23,7 @@ const invoke = vi.fn(async () => `img-${"2".repeat(32)}.png`);
 vi.mock("@tauri-apps/api/core", () => ({ invoke }));
 
 const { generateToeic, MEASURE, PARSE, balance, cues, itemName, reportLine } = await import("./toeicGen");
+const { geminiSynthesize } = await import("./tts");
 const settings = { provider: "claude-cli", ttsModel: "tts", imageModel: "img" } as never;
 const clean = () => JSON.stringify({ faults: [] });
 
@@ -120,9 +122,11 @@ describe("generateToeic", () => {
   it("builds a 200-question test, Listening 1–100 with photos and speech, Reading 101–200", async () => {
     const p7 = (u: "p7s" | "p7m") => solve(() => (u === "p7s" ? "D" : "B"));
     replies = (["p12", "p3", "p4", "p56", "p7s", "p7m"] as const).flatMap((u) => [() => JSON.stringify(fixtures[u]()), clean, u === "p7s" || u === "p7m" ? p7(u) : solve()]);
-    const r = await generateToeic(settings, { units: ["p12", "p3", "p4", "p56", "p7s", "p7m"], target: "750", topics: "", speech: true, images: true });
+    const r = await generateToeic(settings, { units: ["p12", "p3", "p4", "p56", "p7s", "p7m"], target: "750", topics: "", speech: true, images: true }, () => {}, { job: "job-1" });
     // The chosen CLI writes, then proofreads and solves in fresh conversations; no other CLI is called.
     expect(new Set(calls.map((c) => c.by))).toEqual(new Set(["claude-cli"]));
+    // every CLI call belongs to the job, so cancelling the job can end any of them
+    expect(calls.map((c) => c.job)).toEqual(calls.map(() => "job-1"));
     expect(r.reports[0]).toMatchObject({ writer: "claude-cli", checker: "claude-cli", cross: false, total: 31, agreed: 31, flagged: [], proofed: 0 });
     expect(calls[0].prompt).toContain("at least 30% of the items");
     // Listening items are solved from their scripts.
@@ -169,13 +173,14 @@ describe("generateToeic", () => {
     const drop = () => JSON.stringify({ decisions: [{ id: "P1", action: "drop" }] });
     const rewrite = () => JSON.stringify({ items: [{ id: "P1", scene: "Two men are carrying a box.", statements: ["t1", "t2", "t3", "t4"], answer: "B" }] });
     replies = [() => JSON.stringify(fixtures.p12()), clean, solve((id) => (id === "P1" ? "D" : undefined)), drop, rewrite, solve(() => "B")];
-    const r = await generateToeic(settings, { units: ["p12"], target: "750", topics: "", speech: false, images: false });
+    const r = await generateToeic(settings, { units: ["p12"], target: "750", topics: "", speech: false, images: false }, () => {}, { job: "job-r" });
     expect(r.tests[0].passages.filter((p) => p.title?.startsWith("Part 1"))).toHaveLength(B[1].items);
     expect(r.tests[0].passages[0].groups[0].instructions).toContain("Two men are carrying a box.");
     expect(r.reports[0]).toMatchObject({ refilled: ["P1"], dropped: [] });
     expect(calls[4].prompt).toContain("### P1\nPhotograph: A woman is typing at a desk.");
-    // The rewrite and its second check also go to the chosen CLI.
+    // The rewrite and its second check also go to the chosen CLI, as part of the job.
     expect(new Set(calls.map((c) => c.by))).toEqual(new Set(["claude-cli"]));
+    expect(calls.every((c) => c.job === "job-r")).toBe(true);
   });
 
   it("sends proofreading faults back to the writer and reviews items the solver found ambiguous", async () => {
@@ -186,7 +191,8 @@ describe("generateToeic", () => {
       solve(undefined, ["C1.2"]),
       () => JSON.stringify({ decisions: [{ id: "C1.2", action: "keep" }] }),
     ];
-    const r = await generateToeic(settings, { units: ["p3"], target: "750", topics: "", speech: false, images: false });
+    const r = await generateToeic(settings, { units: ["p3"], target: "750", topics: "", speech: false, images: false }, () => {}, { job: "job-p" });
+    expect(calls.every((c) => c.job === "job-p")).toBe(true);
     expect(calls[2].prompt).toContain("- conversation 2 Q1: the times go backwards");
     expect(calls[4].prompt).toContain("### C1.2");
     expect(calls[4].prompt).toContain("(flagged as ambiguous)");
@@ -209,6 +215,66 @@ describe("generateToeic", () => {
     replies = [() => JSON.stringify(fixtures.p4()), clean, solve()];
     await generateToeic(settings, { units: ["p4"], target: "750", topics: "", speech: false, images: false, trend: ["", "# 최신 출제 동향 (공식 사이트 2026-10-29 확인)", "2016년 개정 구성 유지"] });
     expect(calls[0].prompt).toContain("# 최신 출제 동향 (공식 사이트 2026-10-29 확인)\n2016년 개정 구성 유지");
+  });
+});
+
+describe("cancelling a generation", () => {
+  const only = (unit: "p12" | "p3" | "p4", media = false) => ({ units: [unit], target: "750" as const, topics: "", speech: media, images: media });
+  const aborting = (control: AbortController, reply: () => string) => () => (control.abort(), reply());
+  const failing = (control: AbortController) => () => {
+    control.abort();
+    throw new Error("취소했습니다.");
+  };
+
+  it("stops before the next call once the job is cancelled, and rejects with the cancellation", async () => {
+    const control = new AbortController();
+    // the user cancels while the first call runs; that call still comes back
+    replies = [aborting(control, () => JSON.stringify(fixtures.p4())), clean];
+    await expect(generateToeic(settings, only("p4"), () => {}, { job: "job-2", signal: control.signal })).rejects.toThrow("취소했습니다.");
+    expect(calls).toHaveLength(1);
+    expect(calls[0].job).toBe("job-2");
+  });
+
+  it("does not swallow the cancellation inside a format rewrite whose failure is otherwise ignored", async () => {
+    const control = new AbortController();
+    const short = () => JSON.stringify({ sets: fixtures.p4().sets.slice(0, 9) });
+    replies = [short, failing(control), clean];
+    await expect(generateToeic(settings, only("p4"), () => {}, { job: "job-3", signal: control.signal })).rejects.toThrow("취소했습니다.");
+    expect(calls).toHaveLength(2);
+  });
+
+  it("does not swallow the cancellation inside the proofreading rewrite", async () => {
+    const control = new AbortController();
+    replies = [() => JSON.stringify(fixtures.p3()), () => JSON.stringify({ faults: [{ id: "C2.1", fault: "the times go backwards" }] }), failing(control), solve()];
+    await expect(generateToeic(settings, only("p3"), () => {}, { job: "job-5", signal: control.signal })).rejects.toThrow("취소했습니다.");
+    expect(calls).toHaveLength(3);
+  });
+
+  it("does not swallow the cancellation inside the refill", async () => {
+    const control = new AbortController();
+    const drop = () => JSON.stringify({ decisions: [{ id: "P1", action: "drop" }] });
+    replies = [() => JSON.stringify(fixtures.p12()), clean, solve((id) => (id === "P1" ? "D" : undefined)), drop, failing(control), solve()];
+    await expect(generateToeic(settings, only("p12"), () => {}, { job: "job-6", signal: control.signal })).rejects.toThrow("취소했습니다.");
+    expect(calls).toHaveLength(5);
+  });
+
+  it("makes no photograph or speech after the job is cancelled", async () => {
+    const control = new AbortController();
+    const before = vi.mocked(geminiSynthesize).mock.calls.length;
+    replies = [() => JSON.stringify(fixtures.p12()), clean, aborting(control, () => solve()("", "")), solve()];
+    await expect(generateToeic(settings, only("p12", true), () => {}, { job: "job-4", signal: control.signal })).rejects.toThrow("취소했습니다.");
+    expect(invoke).not.toHaveBeenCalled();
+    expect(vi.mocked(geminiSynthesize).mock.calls.length).toBe(before);
+  });
+
+  it("stops between photographs once the job is cancelled", async () => {
+    const control = new AbortController();
+    const before = vi.mocked(geminiSynthesize).mock.calls.length;
+    invoke.mockImplementationOnce(async () => (control.abort(), `img-${"2".repeat(32)}.png`));
+    replies = [() => JSON.stringify(fixtures.p12()), clean, solve()];
+    await expect(generateToeic(settings, only("p12", true), () => {}, { job: "job-7", signal: control.signal })).rejects.toThrow("취소했습니다.");
+    expect(invoke).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(geminiSynthesize).mock.calls.length).toBe(before);
   });
 });
 

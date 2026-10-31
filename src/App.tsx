@@ -27,6 +27,8 @@ function App() {
   const [practiceId, setPracticeId] = useState<number | null>(null);
   /** A set file handed to the app by a double-click, shown on the import page until saved. */
   const [openPath, setOpenPath] = useState<string | null>(null);
+  /** Set by the sidebar's generation indicator: the import page shows its AI tab, then clears this. */
+  const [showAiTab, setShowAiTab] = useState(false);
   const [prefs, setPrefs] = useState<Prefs>(loadPrefs);
 
   const navigate = (id: PageId) => {
@@ -131,6 +133,8 @@ function App() {
     main = (
       <Import
         openPath={openPath}
+        showAiTab={showAiTab}
+        onAiTabShown={() => setShowAiTab(false)}
         onImported={(id) => {
           setOpenPath(null);
           openTest(id);
@@ -149,7 +153,15 @@ function App() {
     <div className="window">
       <TitleBar title={STUDIO ? `${BRAND.appName} Studio` : BRAND.appName} />
       <div className="body">
-        <Sidebar active={page} onSelect={navigate} />
+        <Sidebar
+          active={page}
+          onSelect={navigate}
+          onOpenGeneration={() => {
+            navigate("import");
+            setShowAiTab(true);
+          }}
+          onOpenTest={openTest}
+        />
         <main className="main">{main}</main>
       </div>
       <WordLookup />

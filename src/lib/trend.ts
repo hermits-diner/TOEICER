@@ -6,7 +6,7 @@
    mismatches, so the user is warned when the test itself changes. */
 
 import { invoke } from "@tauri-apps/api/core";
-import { complete, type AiSettings } from "./ai";
+import { CANCELLED, complete, type AiSettings } from "./ai";
 import { extractJson } from "./json";
 import { specForPrompt, TOEIC_PARTS } from "./toeicSpec";
 import { htmlToText } from "./html";
@@ -92,15 +92,25 @@ async function page(url: string): Promise<{ url: string; text: string }> {
 }
 
 /** Reads the official pages and writes a fresh brief; returns the cached one while it is under a week old
- *  (unless forced), and the stale one when the sites cannot be read. Null only when there is nothing at all. */
-export async function officialBrief(settings: AiSettings, force = false): Promise<TrendBrief | null> {
+ *  (unless forced), and the stale one when the sites cannot be read. Null only when there is nothing at all.
+ *  Inside a generation job, `opts.job` ties the CLI call to the job (cancelling the job ends it) and a cancel
+ *  (`opts.signal`) stops the check with the cancellation instead of falling back to the old brief. */
+export async function officialBrief(
+  settings: AiSettings,
+  force = false,
+  opts: { job?: string; signal?: AbortSignal } = {},
+): Promise<TrendBrief | null> {
+  const stop = () => {
+    if (opts.signal?.aborted) throw new Error(CANCELLED);
+  };
   const cached = loadTrendBrief();
   if (cached && !force && Date.now() - Date.parse(cached.checkedAt) < WEEK_MS) return cached;
   const pages = await Promise.all(TREND_SOURCES.map(page));
   const read = pages.filter((p) => p.text);
   if (!read.length) return cached;
+  stop();
   try {
-    const res = await complete(settings, TREND_SYSTEM, trendPrompt(pages));
+    const res = await complete(settings, TREND_SYSTEM, trendPrompt(pages), { job: opts.job });
     const brief = parseBrief(extractJson(res.text), read.map((p) => p.url), new Date().toISOString());
     if (!brief) return cached;
     try {
@@ -110,6 +120,7 @@ export async function officialBrief(settings: AiSettings, force = false): Promis
     }
     return brief;
   } catch {
+    stop();
     return cached;
   }
 }

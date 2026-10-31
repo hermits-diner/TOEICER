@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const invoke = vi.fn();
 const complete = vi.fn();
 vi.mock("@tauri-apps/api/core", () => ({ invoke: (...a: unknown[]) => invoke(...a) }));
-vi.mock("./ai", () => ({ complete: (...a: unknown[]) => complete(...a) }));
+vi.mock("./ai", () => ({ CANCELLED: "취소했습니다.", complete: (...a: unknown[]) => complete(...a) }));
 vi.mock("./json", () => ({ extractJson: (t: string) => JSON.parse(t) }));
 
 const { officialBrief, parseBrief, trendPrompt, trendSection, loadTrendBrief } = await import("./trend");
@@ -37,6 +37,27 @@ describe("trend brief", () => {
     invoke.mockRejectedValue("offline");
     expect((await officialBrief({} as never, true))?.summary).toBe(reply.summary);
     expect(complete).toHaveBeenCalledTimes(1);
+  });
+  it("inside a generation job: tags the call, and a cancel stops it instead of falling back to the old brief", async () => {
+    invoke.mockResolvedValue({ kind: "text", text: "x" });
+    complete.mockResolvedValue({ text: JSON.stringify(reply) });
+    await officialBrief({} as never, true, { job: "job-t" });
+    expect(complete.mock.calls[0][3]).toEqual({ job: "job-t" });
+
+    // cancelled while the pages were being read: no CLI call
+    const early = new AbortController();
+    invoke.mockImplementation(async () => (early.abort(), { kind: "text", text: "x" }));
+    await expect(officialBrief({} as never, true, { job: "job-t", signal: early.signal })).rejects.toThrow("취소했습니다.");
+    expect(complete).toHaveBeenCalledTimes(1);
+
+    // cancelled during the CLI call: the CLI's error is not swallowed
+    const late = new AbortController();
+    invoke.mockResolvedValue({ kind: "text", text: "x" });
+    complete.mockImplementation(async () => {
+      late.abort();
+      throw new Error("취소했습니다.");
+    });
+    await expect(officialBrief({} as never, true, { job: "job-t", signal: late.signal })).rejects.toThrow("취소했습니다.");
   });
   it("rejects an empty brief and turns a brief into writer lines", () => {
     expect(parseBrief({ trends: ["x"] }, [], "2026-10-29T00:00:00Z")).toBeNull();

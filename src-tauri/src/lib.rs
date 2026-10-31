@@ -89,6 +89,8 @@ pub fn run() {
             backup::restore_cancel,
             backup::restore_commit,
             backup::restore_prepare,
+            cli::ai_cancel_job,
+            cli::ai_end_job,
             media::archive_sample_audio,
             media::archive_sample_image,
             media::read_audio,
@@ -122,7 +124,12 @@ pub fn run() {
         })
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|_, _| {});
+        .run(|_, event| {
+            // The process exits right after this without dropping running tasks; end the generation CLIs first.
+            if let tauri::RunEvent::Exit = event {
+                cli::end_all_jobs();
+            }
+        });
 }
 
 #[cfg(test)]

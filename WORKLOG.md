@@ -1,5 +1,23 @@
 # WORKLOG
 
+## 2026-10-31 (오후)
+
+### AI 생성을 앱 전체의 작업으로 옮기고, 취소하면 CLI까지 끝나게 함 (+ 진행 막대) — TOEFLER `114938b` 반영
+
+- **무엇을 발견했는가**: TOEFLER에서 신고된 문제와 같은 구조다. Studio의 'AI로 만들기'(200문항 한 회분)는 생성 전체가 `ToeicGeneratePanel`의 `run()` 안에 있었다. 사이드바에서 다른 탭으로 가면 패널이 언마운트되어 진행 표시가 사라지지만 promise와 CLI는 계속 돈다. 돌아온 사용자가 빈 패널을 보고 다시 누르면 CLI 실행이 두 개 겹친다. 취소할 방법이 없고, 끝나면 세트가 하나일 때 `onCreated`로 보던 화면을 예고 없이 바꿨다. 앱을 닫아도 CLI가 남는다(창의 이벤트 루프가 `std::process::exit`로 끝나 tokio 작업이 drop되지 않으므로 `kill_on_drop`이 발동하지 않음 — TOEFLER에서 확인한 내용이고 `cli.rs`가 같은 코드다).
+- **무엇을 했는가**:
+  - `src/lib/jobStore.ts`: TOEFLER의 범용 작업 저장소(상태·시작·취소·닫기, id 가드, 계획 기반 단조 진행률, 경과 시간, BUSY, 끝내기 순서, 구독자 보호)를 옮겼다. 리뷰에서 나온 개선을 먼저 넣었다: 실행이 끝나 첫 `.then`에 들어오면 `settled`로 표시해, `ai_end_job`을 기다리는 사이에 누른 취소는 거절한다(전에는 잠깐 "취소하는 중…"이 뜨고 Rust 등록부에 취소된 항목이 고아로 남았다).
+  - `src/lib/toeicJob.ts`: 패널의 옛 `run()`이 하던 일(참고자료 → 동향 확인 → `generateToeic` → 세트마다 `saveImportedTest`·`saveGenMeta`)과 단계 계획·문구. TOEIC에 맞게 고친 점: 진행 단위는 작성 단위 6개(Part 1–2, 3, 4, 5–6, 7 단일, 7 복수)이고, Gemini 키와 듣기 파트가 있을 때만 '사진·음성'을 별도 단계로 붙인다(사진은 Part 1이 있을 때만). 묶음 시험이 없으므로 결과는 저장한 세트 목록(Listening·Reading)이고, 검증 기록은 세트마다 자기 파트 것만 넣는다(전과 같음). 저장 중 실패하면 이 작업이 이미 저장한 세트를 `deleteTest`로 지운다.
+  - 배지 문구 `JOB_TEXT`는 `Record<Exclude<JobStatus, "idle" | "running" | "saving">, string>`으로 타입을 매겨, 상태가 늘면 컴파일이 실패하게 했다(리뷰 개선). 진행 중 문구는 `JOB_RUNNING`.
+  - 패널: `role="progressbar"` 막대와 "{n}% · {파트 · 단계} · mm:ss", 실행 중 '취소', 저장 중 '저장 중'(비활성), 취소 중 '취소하는 중…', 다른 생성 중이거나 '지금 확인' 중엔 시작 비활성("다른 생성이 진행 중입니다."). 끝나도 화면을 옮기지 않고 보고와 버튼을 보인다: 세트가 하나면 '세트 열기', 둘이면 'Listening 풀기'·'Reading 풀기'. 실패는 오류 그대로, 취소는 "생성을 취소했습니다. 저장한 것은 없습니다."
+  - 사이드바 `GenJobBadge`(`__STUDIO__` 뒤 lazy): "AI 생성 중… {단계}"와 얇은 막대. 완료 후 누르면 세트가 하나일 땐 그 세트를 열고, 둘일 땐 두 버튼이 있는 생성 화면으로 간다(TOEFLER는 시험 한 부를 열지만 TOEIC은 묶음이 없어서).
+  - 가져오기 화면: 한 번 연 탭은 숨김으로 계속 마운트해(`StudioMake`의 `shown`), 배지를 눌러 AI 탭으로 와도 붙여넣기 초안·세트 파일 미리보기가 남는다. App은 key 재마운트 대신 `showAiTab` 요청을 넘긴다.
+  - 취소: `complete(settings, system, prompt, { job, signal })`. 생성기의 모든 CLI 호출(쓰기·형식 고쳐 쓰기·교정·교정 후 다시 쓰기·블라인드 풀이·편집자·다시 쓰기와 그 재검증)이 `Run.ask`로 job id를 달고, 호출 전후에 신호를 본다. 실패를 삼키던 `catch` 세 곳(형식 고쳐 쓰기, 교정 후 다시 쓰기, refill)은 취소면 다시 던진다. Gemini 사진·음성은 CLI가 아니라 등록부에 잡히지 않으므로 사진 한 장, 음성 한 개마다 그 전에 신호를 본다. `officialBrief`는 `{ job, signal }`을 받아 CLI 호출 직전에 신호를 보고, 취소면 옛 요약으로 대신하지 않고 다시 던진다. 다른 AI 기능(해설·변환·단어 풀이·설정의 연결 확인·수동 '지금 확인')은 job 없이 그대로다.
+  - Rust `cli.rs`: TOEFLER의 job별 PID 등록부(`Jobs`·`Tracked`·`kill_tree`/`end_trees`(spawn_blocking에서 taskkill /T /F)·`ai_cancel_job`·`ai_end_job`, 작업 밖 실행은 내부 키 `UNTAGGED`, 첫 호출 전 취소도 기록, 시간 초과 때 프로세스 트리 종료, `try_join!`으로 핸들을 쥔 채 종료·출력 대기)를 그대로 옮겼다. `cli.rs`가 TOEFLER 변경 전 판과 임시 폴더 이름 한 줄만 달라서 가능했다. 리뷰 개선: `Jobs::end`도 `cancel`처럼 `UNTAGGED`를 무시한다(그 이름으로 끝내기가 오면 작업 밖 CLI 목록이 지워져 앱 종료 때 못 끝내게 되므로). `ai.rs` 요청에 `job`, `lib.rs`에 두 명령과 `RunEvent::Exit` → `end_all_jobs()`, tokio `macros` 기능(이미 dev-deps로 잠겨 있어 Cargo.lock 변화 없음).
+- **왜 그렇게 고쳤는가**: 패널을 숨겨 두기만 하면 사이드바 표시·취소·자동 이동 문제가 그대로다. React Context나 App 상태로 올리면 `App.tsx`·`Sidebar.tsx`가 Reader와 공용이라 생성기 코드가 Reader 번들에 들어간다. 모듈 저장소 + Studio 전용 lazy 청크면 Reader 빌드에서 빠진다. TS 플래그만으로 멈추면 이미 도는 CLI는 최대 10분(`RUN_TIMEOUT`) 구독 한도를 쓰며 계속 돈다. 완료 시 두 세트를 한쪽만 자동으로 여는 대신 생성 화면에서 고르게 한 것은 Listening·Reading이 따로 채점되는 별개 세트라서다.
+- **어떻게 확인했는가**: 테스트를 먼저 썼다. RED — vitest 8파일 실패(그중 4파일은 `jobStore`·`toeicJob` 모듈이 없어 파일째 실패), 테스트 14개 실패(호출의 job이 `undefined`, 취소 뒤에도 다음 호출이 나가 "unexpected AI call", 무시되던 catch가 취소를 삼켜 promise가 resolve, 취소 뒤에도 사진·음성 생성, `cancelJob` 없음, 탭 전환 시 붙여넣기 탭이 사라짐, 동향 확인에 job 미전달). cargo — `Jobs`·`JOBS`·`UNTAGGED`·`CANCELLED` 없음으로 컴파일 오류 21개. GREEN — vitest 29파일 125개 통과, `tsc --noEmit` 통과, `cargo test --lib` 36개 통과·2개 무시(실제 CLI·Gemini 호출, 원래 있던 것). 리뷰 개선 두 가지는 고친 줄을 잠시 되돌려 테스트가 잡는지도 봤다: `settled` 검사를 빼면 "이미 끝난 실행은 취소할 수 없다" 테스트가, `end`의 `UNTAGGED` 가드를 빼면 "작업 밖 실행은 끝내기로도 지워지지 않는다" 테스트가 실패했다. `npm run build`(Reader) 산출물에 '200문항 한 회분 만들기'·출제 시스템 프롬프트·'ai_cancel_job'·'AI 생성 중'·'취소하는 중'·'다른 생성이 진행 중' 0건, `npm run build:studio`에는 모두 있음.
+- **하지 않기로 한 것**: 실제 CLI로 취소·앱 닫기를 눌러 보는 확인은 구독 한도를 쓰므로 하지 않았다(설치본에서 한 번 볼 것). 진행 중인 Gemini 사진·음성 요청 하나는 중간에 끊지 못한다 — 취소하면 그 한 건이 끝난 뒤 멈추며, 그동안 '취소하는 중…'이다. 사진·음성 단계 안의 세부 진행률(몇 번째 음성인지)은 넣지 않았다. 패널의 긴 단계 설명("다른 AI가 …")은 지금은 같은 CLI의 새 대화라 문구가 어긋나지만 이번 범위 밖이라 두었다.
+
 ## 2026-10-31
 
 ### 마이그레이션 SQL 줄바꿈을 CRLF로 고정 (TOEFLER `8fbac1f`와 같은 수정)

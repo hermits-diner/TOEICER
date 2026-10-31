@@ -2,15 +2,21 @@
 //! non-interactive print mode with every tool switched off and keeps only the final message, so a
 //! subscription can write items without an API key. Nothing from the user's projects reaches the
 //! model: the CLI runs in an empty temporary directory, without MCP servers or settings files.
+//!
+//! A call can belong to a generation job (src/lib/jobStore.ts). The job's CLI processes are kept per job, so cancelling
+//! the job ends the one it is waiting on, with every process that one started, and refuses the job's later calls.
+//! Runs outside a job are kept too (never cancelled), so the app's exit can end every CLI it started.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::Duration;
+use std::sync::{LazyLock, Mutex, MutexGuard};
+use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use serde_json::Value;
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 use tokio::process::Command;
 
 pub const CLI_PROVIDERS: [&str; 3] = ["claude-cli", "codex-cli", "antigravity-cli"];
@@ -24,6 +30,194 @@ const STATUS_TIMEOUT: Duration = Duration::from_secs(30);
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 static RUN_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+/// What a cancelled job's calls end with; the page shows it as is (src/lib/ai.ts has the same text).
+pub const CANCELLED: &str = "취소했습니다.";
+/// A job with no CLI running is forgotten after this long, in case the page never ends it (a reload mid-run).
+const IDLE_JOB: Duration = Duration::from_secs(60 * 60);
+/// Where CLI runs outside any job (explanations, the converter, status checks) are kept, so the app's exit can end
+/// them too. Never cancelled or ended by name.
+const UNTAGGED: &str = "\u{1}untagged";
+
+struct JobEntry {
+    cancelled: bool,
+    pids: Vec<u32>,
+    touched: Instant,
+}
+
+impl JobEntry {
+    fn new(now: Instant) -> Self {
+        JobEntry { cancelled: false, pids: Vec::new(), touched: now }
+    }
+}
+
+/// The CLI processes of each generation job. A job is known from its first call until the page ends it.
+#[derive(Default)]
+pub struct Jobs(Mutex<HashMap<String, JobEntry>>);
+
+static JOBS: LazyLock<Jobs> = LazyLock::new(Jobs::default);
+
+impl Jobs {
+    fn lock(&self) -> MutexGuard<'_, HashMap<String, JobEntry>> {
+        self.0.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn prune_locked(map: &mut HashMap<String, JobEntry>, now: Instant) {
+        map.retain(|_, e| !e.pids.is_empty() || now.saturating_duration_since(e.touched) < IDLE_JOB);
+    }
+
+    /// A call of the job is about to start: refused once the job is cancelled.
+    fn begin(&self, job: &str) -> Result<(), String> {
+        let now = Instant::now();
+        let mut map = self.lock();
+        Self::prune_locked(&mut map, now);
+        let e = map.entry(job.to_string()).or_insert_with(|| JobEntry::new(now));
+        if e.cancelled {
+            return Err(CANCELLED.into());
+        }
+        e.touched = now;
+        Ok(())
+    }
+
+    /// A CLI process started for the job; refused when the job was cancelled meanwhile (the caller ends the process).
+    fn register(&self, job: &str, pid: u32) -> Result<(), String> {
+        let now = Instant::now();
+        let mut map = self.lock();
+        let e = map.entry(job.to_string()).or_insert_with(|| JobEntry::new(now));
+        if e.cancelled {
+            return Err(CANCELLED.into());
+        }
+        e.pids.push(pid);
+        e.touched = now;
+        Ok(())
+    }
+
+    fn unregister(&self, job: &str, pid: u32) {
+        if let Some(e) = self.lock().get_mut(job) {
+            e.pids.retain(|&p| p != pid);
+            e.touched = Instant::now();
+        }
+    }
+
+    /// Marks the job cancelled and hands back the processes to end. A job not seen yet (cancelled before its first
+    /// call) is recorded as cancelled, so that call is refused; the page's end, or the idle expiry, removes it.
+    fn cancel(&self, job: &str) -> Vec<u32> {
+        if job == UNTAGGED {
+            return Vec::new();
+        }
+        let now = Instant::now();
+        let mut map = self.lock();
+        let e = map.entry(job.to_string()).or_insert_with(|| JobEntry::new(now));
+        e.cancelled = true;
+        e.touched = now;
+        e.pids.clone()
+    }
+
+    fn is_cancelled(&self, job: &str) -> bool {
+        self.lock().get(job).is_some_and(|e| e.cancelled)
+    }
+
+    /// Forgets an ended job. The untagged runs are not a job: dropping them would let the app's exit miss them.
+    fn end(&self, job: &str) {
+        if job == UNTAGGED {
+            return;
+        }
+        self.lock().remove(job);
+    }
+
+    /// Cancels every job and hands back all their processes, for the app's exit.
+    fn cancel_all(&self) -> Vec<u32> {
+        self.lock()
+            .values_mut()
+            .flat_map(|e| {
+                e.cancelled = true;
+                e.pids.clone()
+            })
+            .collect()
+    }
+
+    #[cfg(test)]
+    fn prune(&self, now: Instant) {
+        Self::prune_locked(&mut self.lock(), now);
+    }
+
+    #[cfg(test)]
+    fn pids(&self, job: &str) -> Vec<u32> {
+        self.lock().get(job).map(|e| e.pids.clone()).unwrap_or_default()
+    }
+
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.lock().len()
+    }
+}
+
+/// Keeps a CLI process in its job's list for as long as the call runs, however the call ends.
+struct Tracked<'a> {
+    job: &'a str,
+    pid: u32,
+}
+
+impl Drop for Tracked<'_> {
+    fn drop(&mut self) {
+        JOBS.unregister(self.job, self.pid);
+    }
+}
+
+/// Ends a process and every process it started (an npm `.cmd` shim runs node, which runs the CLI).
+fn kill_tree(pid: u32) -> Result<(), String> {
+    let mut cmd;
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd = std::process::Command::new("taskkill");
+        cmd.args(["/PID", &pid.to_string(), "/T", "/F"]).creation_flags(CREATE_NO_WINDOW);
+    }
+    #[cfg(not(windows))]
+    {
+        cmd = std::process::Command::new("kill");
+        cmd.args(["-9", &pid.to_string()]);
+    }
+    // A process that ended by itself meanwhile makes the command fail, which is fine; only a command that cannot
+    // run at all is an error.
+    cmd.stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|_| ())
+        .map_err(|e| format!("실행 중인 AI를 끝내지 못했습니다: {e}"))
+}
+
+/// `kill_tree` waits for taskkill; off the async workers.
+async fn end_trees(pids: Vec<u32>) -> Result<(), String> {
+    let errors = tauri::async_runtime::spawn_blocking(move || pids.into_iter().filter_map(|p| kill_tree(p).err()).collect::<Vec<_>>())
+        .await
+        .map_err(|e| format!("실행 중인 AI를 끝내지 못했습니다: {e}"))?;
+    if errors.is_empty() { Ok(()) } else { Err(errors.join(" ")) }
+}
+
+/// Cancels a generation job: ends the CLI it runs (with what that CLI started) and refuses its later calls.
+#[tauri::command]
+pub async fn ai_cancel_job(job: String) -> Result<(), String> {
+    end_trees(JOBS.cancel(&job)).await
+}
+
+/// Forgets a job that has ended.
+#[tauri::command]
+pub fn ai_end_job(job: String) {
+    JOBS.end(&job);
+}
+
+/// For the app's exit: the window's event loop ends the process with `std::process::exit`, so running tasks are never
+/// dropped and `kill_on_drop` never fires; a CLI would run on (and spend quota) after the window closed. Ends the
+/// generation jobs' CLIs and the untagged ones.
+pub fn end_all_jobs() {
+    for pid in JOBS.cancel_all() {
+        if let Err(e) = kill_tree(pid) {
+            eprintln!("{e}");
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CliRun {
@@ -137,8 +331,31 @@ struct Output {
     stderr: String,
 }
 
-async fn run(mut cmd: Command, stdin_text: Option<&str>, timeout: Duration, what: &str) -> Result<Output, String> {
+async fn read_all<R: AsyncRead + Unpin>(pipe: Option<R>) -> std::io::Result<Vec<u8>> {
+    let mut buf = Vec::new();
+    if let Some(mut p) = pipe {
+        p.read_to_end(&mut buf).await?;
+    }
+    Ok(buf)
+}
+
+async fn run(mut cmd: Command, stdin_text: Option<&str>, timeout: Duration, what: &str, job: Option<&str>) -> Result<Output, String> {
     let mut child = cmd.spawn().map_err(|e| format!("{what}을(를) 실행하지 못했습니다: {e}"))?;
+    let pid = child.id();
+    // Every run is listed (a job's under its id, the rest untagged) so a cancel or the app's exit can end it.
+    // Declared after the child so it is dropped first: the PID leaves the list while this handle still holds the
+    // process, so nothing can end an unrelated process that was given the same number.
+    let _tracked = match pid {
+        Some(pid) => {
+            let key = job.unwrap_or(UNTAGGED);
+            if let Err(e) = JOBS.register(key, pid) {
+                let _ = end_trees(vec![pid]).await;
+                return Err(e);
+            }
+            Some(Tracked { job: key, pid })
+        }
+        None => None,
+    };
     if let Some(mut stdin) = child.stdin.take() {
         if let Some(text) = stdin_text {
             // A CLI that exits early (not logged in) closes the pipe; the exit status says why.
@@ -146,14 +363,25 @@ async fn run(mut cmd: Command, stdin_text: Option<&str>, timeout: Duration, what
         }
         drop(stdin);
     }
-    let out = tokio::time::timeout(timeout, child.wait_with_output())
-        .await
+    let (stdout, stderr) = (child.stdout.take(), child.stderr.take());
+    let waited = tokio::time::timeout(timeout, async { tokio::try_join!(child.wait(), read_all(stdout), read_all(stderr)) }).await;
+    if waited.is_err() {
+        // kill_on_drop ends only the direct child; under an npm `.cmd` shim, node (the CLI itself) would run on.
+        if let Some(pid) = pid {
+            let _ = end_trees(vec![pid]).await;
+        }
+    }
+    // The job's cancel ended this CLI on purpose; what it printed on the way out is no answer.
+    if job.is_some_and(|j| JOBS.is_cancelled(j)) {
+        return Err(CANCELLED.into());
+    }
+    let (status, stdout, stderr) = waited
         .map_err(|_| format!("{what}이(가) {}초 안에 끝나지 않아 중단했습니다.", timeout.as_secs()))?
         .map_err(|e| format!("{what} 실행 중 오류: {e}"))?;
     Ok(Output {
-        status: out.status.code(),
-        stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
-        stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
+        status: status.code(),
+        stdout: String::from_utf8_lossy(&stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&stderr).into_owned(),
     })
 }
 
@@ -222,20 +450,24 @@ fn tuning_args(provider: &str, t: &Tuning) -> Vec<String> {
     args
 }
 
-/// One completion through the chosen CLI.
-pub async fn complete(provider: &str, explicit_path: Option<&str>, model: &str, tuning: &Tuning, system: &str, prompt: &str) -> Result<CliRun, String> {
+/// One completion through the chosen CLI; `job` makes it part of a generation job that can be cancelled.
+pub async fn complete(provider: &str, explicit_path: Option<&str>, model: &str, tuning: &Tuning, system: &str, prompt: &str, job: Option<&str>) -> Result<CliRun, String> {
+    // A cancelled job's calls stop here, before anything is started.
+    if let Some(j) = job {
+        JOBS.begin(j)?;
+    }
     let path = resolve(provider, explicit_path)?;
     let dir = scratch_dir()?;
     let result = match provider {
-        "codex-cli" => codex(&path, &dir, model, tuning, system, prompt).await,
-        "antigravity-cli" => antigravity(&path, &dir, model, tuning, system, prompt).await,
-        _ => claude(&path, &dir, model, tuning, system, prompt).await,
+        "codex-cli" => codex(&path, &dir, model, tuning, system, prompt, job).await,
+        "antigravity-cli" => antigravity(&path, &dir, model, tuning, system, prompt, job).await,
+        _ => claude(&path, &dir, model, tuning, system, prompt, job).await,
     };
     let _ = std::fs::remove_dir_all(&dir);
     result
 }
 
-async fn claude(path: &Path, dir: &Path, model: &str, tuning: &Tuning, system: &str, prompt: &str) -> Result<CliRun, String> {
+async fn claude(path: &Path, dir: &Path, model: &str, tuning: &Tuning, system: &str, prompt: &str, job: Option<&str>) -> Result<CliRun, String> {
     let mut cmd = command(path);
     cmd.current_dir(dir);
     // Print mode, one turn, no tools, no MCP servers, no settings files, nothing saved: a plain model call.
@@ -250,7 +482,7 @@ async fn claude(path: &Path, dir: &Path, model: &str, tuning: &Tuning, system: &
         std::fs::write(&sys_file, system).map_err(|e| format!("시스템 프롬프트 파일을 쓰지 못했습니다: {e}"))?;
         cmd.arg("--system-prompt-file").arg(&sys_file);
     }
-    let out = run(cmd, Some(prompt), RUN_TIMEOUT, "Claude Code").await?;
+    let out = run(cmd, Some(prompt), RUN_TIMEOUT, "Claude Code", job).await?;
     parse_claude(&out.stdout, &out.stderr, out.status, model)
 }
 
@@ -284,7 +516,7 @@ fn parse_claude(stdout: &str, stderr: &str, status: Option<i32>, requested: &str
     })
 }
 
-async fn codex(path: &Path, dir: &Path, model: &str, tuning: &Tuning, system: &str, prompt: &str) -> Result<CliRun, String> {
+async fn codex(path: &Path, dir: &Path, model: &str, tuning: &Tuning, system: &str, prompt: &str, job: Option<&str>) -> Result<CliRun, String> {
     let last = dir.join("last.txt");
     let mut cmd = command(path);
     cmd.current_dir(dir);
@@ -298,7 +530,7 @@ async fn codex(path: &Path, dir: &Path, model: &str, tuning: &Tuning, system: &s
     cmd.arg("-");
     // Codex exec has no system prompt switch; the instructions lead the single user message.
     let stdin = if system.trim().is_empty() { format!("{NO_TOOLS}\n\n{prompt}") } else { format!("{}\n\n{NO_TOOLS}\n\n{prompt}", system.trim()) };
-    let out = run(cmd, Some(&stdin), RUN_TIMEOUT, "Codex CLI").await?;
+    let out = run(cmd, Some(&stdin), RUN_TIMEOUT, "Codex CLI", job).await?;
     let last_text = std::fs::read_to_string(&last).unwrap_or_default();
     parse_codex(&out.stdout, &out.stderr, out.status, &last_text, model)
 }
@@ -339,7 +571,7 @@ fn parse_codex(stdout: &str, stderr: &str, status: Option<i32>, last_message: &s
     })
 }
 
-async fn antigravity(path: &Path, dir: &Path, model: &str, tuning: &Tuning, system: &str, prompt: &str) -> Result<CliRun, String> {
+async fn antigravity(path: &Path, dir: &Path, model: &str, tuning: &Tuning, system: &str, prompt: &str, job: Option<&str>) -> Result<CliRun, String> {
     let mut cmd = command(path);
     cmd.current_dir(dir);
     // One user message as JSON on stdin (no command-line length limit), events as JSON lines, no slash expansion.
@@ -350,7 +582,7 @@ async fn antigravity(path: &Path, dir: &Path, model: &str, tuning: &Tuning, syst
     }
     let content = if system.trim().is_empty() { format!("{NO_TOOLS}\n\n{prompt}") } else { format!("{}\n\n{NO_TOOLS}\n\n{prompt}", system.trim()) };
     let line = format!("{}\n", serde_json::json!({ "event": "user", "message": { "role": "user", "content": content } }));
-    let out = run(cmd, Some(&line), RUN_TIMEOUT, "Antigravity CLI").await?;
+    let out = run(cmd, Some(&line), RUN_TIMEOUT, "Antigravity CLI", job).await?;
     parse_antigravity(&out.stdout, &out.stderr, out.status, model)
 }
 
@@ -393,7 +625,7 @@ pub async fn models(provider: &str, explicit_path: Option<&str>) -> Result<Vec<S
     let ids = match provider {
         "antigravity-cli" => {
             cmd.arg("models");
-            let out = run(cmd, None, STATUS_TIMEOUT, what).await?;
+            let out = run(cmd, None, STATUS_TIMEOUT, what, None).await?;
             let ids = parse_model_list(&out.stdout);
             if ids.is_empty() {
                 let detail = tail(if out.stderr.trim().is_empty() { &out.stdout } else { &out.stderr }, 300);
@@ -403,7 +635,7 @@ pub async fn models(provider: &str, explicit_path: Option<&str>) -> Result<Vec<S
         }
         "codex-cli" => {
             cmd.args(["debug", "models"]);
-            let out = run(cmd, None, STATUS_TIMEOUT, what).await?;
+            let out = run(cmd, None, STATUS_TIMEOUT, what, None).await?;
             let ids = parse_codex_catalog(&out.stdout, codex_config_model().as_deref());
             if ids.is_empty() {
                 let detail = tail(if out.stderr.trim().is_empty() { &out.stdout } else { &out.stderr }, 300);
@@ -481,13 +713,13 @@ pub async fn status(provider: &str, explicit_path: Option<&str>) -> Result<CliSt
     let what = label(provider);
     let mut cmd = command(&path);
     cmd.arg("--version");
-    let version = run(cmd, None, STATUS_TIMEOUT, what).await.ok().map(|o| o.stdout.trim().to_string()).filter(|s| !s.is_empty());
+    let version = run(cmd, None, STATUS_TIMEOUT, what, None).await.ok().map(|o| o.stdout.trim().to_string()).filter(|s| !s.is_empty());
     let mut st = CliStatus { path: path.to_string_lossy().into_owned(), version, logged_in: None, account: None, models: None };
     let mut cmd = command(&path);
     if provider == "antigravity-cli" {
         // No status command: listing the models needs the login, and shows nothing without it.
         cmd.arg("models");
-        if let Ok(o) = run(cmd, None, STATUS_TIMEOUT, what).await {
+        if let Ok(o) = run(cmd, None, STATUS_TIMEOUT, what, None).await {
             let ids = parse_model_list(&o.stdout);
             st.logged_in = Some(o.status == Some(0) && !ids.is_empty());
             st.account = if ids.is_empty() { None } else { Some(format!("모델 {}개 사용 가능", ids.len())) };
@@ -495,7 +727,7 @@ pub async fn status(provider: &str, explicit_path: Option<&str>) -> Result<CliSt
         }
     } else if provider == "codex-cli" {
         cmd.args(["login", "status"]);
-        if let Ok(o) = run(cmd, None, STATUS_TIMEOUT, what).await {
+        if let Ok(o) = run(cmd, None, STATUS_TIMEOUT, what, None).await {
             let text = format!("{}\n{}", o.stdout, o.stderr);
             let line = text.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("").to_string();
             st.logged_in = Some(text.to_ascii_lowercase().contains("logged in") && !text.to_ascii_lowercase().contains("not logged in"));
@@ -504,13 +736,13 @@ pub async fn status(provider: &str, explicit_path: Option<&str>) -> Result<CliSt
         // The catalog needs no login and tells which names this Codex version accepts.
         let mut cmd = command(&path);
         cmd.args(["debug", "models"]);
-        if let Ok(o) = run(cmd, None, STATUS_TIMEOUT, what).await {
+        if let Ok(o) = run(cmd, None, STATUS_TIMEOUT, what, None).await {
             let ids = parse_codex_catalog(&o.stdout, codex_config_model().as_deref());
             st.models = if ids.is_empty() { None } else { Some(ids) };
         }
     } else {
         cmd.args(["auth", "status", "--json"]);
-        if let Ok(o) = run(cmd, None, STATUS_TIMEOUT, what).await {
+        if let Ok(o) = run(cmd, None, STATUS_TIMEOUT, what, None).await {
             if let Ok(v) = serde_json::from_str::<Value>(o.stdout.trim()) {
                 st.logged_in = v["loggedIn"].as_bool();
                 let email = v["email"].as_str().unwrap_or("");
@@ -653,10 +885,105 @@ mod tests {
                 "antigravity-cli" => "gemini-3.8-flash-low",
                 _ => "",
             };
-            let r = complete(provider, None, model, &Tuning::default(), "Reply with exactly one word.", "Say OK.").await.unwrap();
+            let r = complete(provider, None, model, &Tuning::default(), "Reply with exactly one word.", "Say OK.", None).await.unwrap();
             println!("{provider}: {r:?}");
             assert!(r.text.to_ascii_uppercase().contains("OK"));
         }
+    }
+
+    #[test]
+    fn job_registry_tracks_processes_until_they_exit() {
+        let jobs = Jobs::default();
+        jobs.begin("j").unwrap();
+        jobs.register("j", 10).unwrap();
+        jobs.register("j", 11).unwrap();
+        assert_eq!(jobs.pids("j"), vec![10, 11]);
+        jobs.unregister("j", 10);
+        assert_eq!(jobs.pids("j"), vec![11]);
+        jobs.unregister("j", 11);
+        assert!(jobs.pids("j").is_empty());
+        // the job stays known between its calls, so a cancel then still counts
+        assert_eq!(jobs.len(), 1);
+        jobs.end("j");
+        assert_eq!(jobs.len(), 0);
+    }
+
+    #[test]
+    fn a_cancelled_job_hands_back_its_processes_and_refuses_new_ones() {
+        let jobs = Jobs::default();
+        jobs.begin("j").unwrap();
+        jobs.register("j", 42).unwrap();
+        jobs.begin("other").unwrap();
+        jobs.register("other", 7).unwrap();
+        assert_eq!(jobs.cancel("j"), vec![42]);
+        assert!(jobs.is_cancelled("j"));
+        assert_eq!(jobs.begin("j").unwrap_err(), "취소했습니다.");
+        assert_eq!(jobs.register("j", 43).unwrap_err(), "취소했습니다.");
+        assert_eq!(CANCELLED, "취소했습니다.");
+        // another job is not touched
+        assert!(!jobs.is_cancelled("other"));
+        assert_eq!(jobs.pids("other"), vec![7]);
+        jobs.end("j");
+        assert!(!jobs.is_cancelled("j"));
+        assert_eq!(jobs.len(), 1);
+    }
+
+    #[test]
+    fn a_cancel_before_the_first_call_still_refuses_the_job() {
+        let jobs = Jobs::default();
+        // the page may cancel while it is still reading references or the official pages, before any CLI call
+        assert!(jobs.cancel("early").is_empty());
+        assert_eq!(jobs.begin("early").unwrap_err(), "취소했습니다.");
+        assert_eq!(jobs.register("early", 3).unwrap_err(), "취소했습니다.");
+        jobs.end("early");
+        assert_eq!(jobs.len(), 0);
+        assert!(jobs.begin("early").is_ok());
+        // a cancelled entry nobody ends is forgotten after a while
+        jobs.cancel("orphan");
+        jobs.unregister("nope", 3);
+        jobs.prune(Instant::now() + IDLE_JOB + Duration::from_secs(1));
+        assert_eq!(jobs.len(), 0);
+    }
+
+    #[test]
+    fn untagged_runs_are_ended_on_exit_but_never_cancelled_or_forgotten() {
+        let jobs = Jobs::default();
+        jobs.register(UNTAGGED, 9).unwrap();
+        assert!(jobs.cancel(UNTAGGED).is_empty());
+        assert!(!jobs.is_cancelled(UNTAGGED));
+        // ending a job by that name must not drop the runs outside any job: the app's exit still has to end them
+        jobs.end(UNTAGGED);
+        assert_eq!(jobs.pids(UNTAGGED), vec![9]);
+        jobs.register(UNTAGGED, 10).unwrap();
+        jobs.begin("j").unwrap();
+        jobs.register("j", 4).unwrap();
+        let mut all = jobs.cancel_all();
+        all.sort();
+        assert_eq!(all, vec![4, 9, 10]);
+    }
+
+    #[test]
+    fn idle_jobs_are_forgotten_and_every_job_ends_on_exit() {
+        let jobs = Jobs::default();
+        jobs.begin("left").unwrap();
+        jobs.begin("busy").unwrap();
+        jobs.register("busy", 5).unwrap();
+        // a page reloaded mid-run never ends its job; an entry with no CLI running goes after a while
+        jobs.prune(Instant::now() + IDLE_JOB + Duration::from_secs(1));
+        assert_eq!(jobs.len(), 1);
+        assert_eq!(jobs.cancel_all(), vec![5]);
+        assert!(jobs.is_cancelled("busy"));
+    }
+
+    #[tokio::test]
+    async fn a_call_for_a_cancelled_job_is_refused_before_anything_starts() {
+        let job = "test-refused-before-spawn";
+        JOBS.begin(job).unwrap();
+        JOBS.cancel(job);
+        // the path does not exist: reaching the spawn would give a different error
+        let e = complete("claude-cli", Some("C:/nowhere/claude.exe"), "", &Tuning::default(), "", "hi", Some(job)).await.unwrap_err();
+        assert_eq!(e, "취소했습니다.");
+        JOBS.end(job);
     }
 
     #[test]

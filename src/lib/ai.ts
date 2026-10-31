@@ -129,7 +129,18 @@ export interface CompleteResult {
   outputTokens: number | null;
 }
 
-export function complete(s: AiSettings, system: string, prompt: string): Promise<CompleteResult> {
+/** What a cancelled job's calls end with; src-tauri/src/cli.rs returns the same text. */
+export const CANCELLED = "취소했습니다.";
+
+/** `job` ties the call to a generation job (src/lib/jobStore.ts): cancelling the job ends the CLI it runs. A call
+ *  whose job is already cancelled (`signal`) is not started. */
+export async function complete(
+  s: AiSettings,
+  system: string,
+  prompt: string,
+  opts: { job?: string; signal?: AbortSignal } = {},
+): Promise<CompleteResult> {
+  if (opts.signal?.aborted) throw new Error(CANCELLED);
   return invoke<CompleteResult>("ai_complete", {
     req: {
       provider: s.provider,
@@ -139,9 +150,15 @@ export function complete(s: AiSettings, system: string, prompt: string): Promise
       speed: s.speed[s.provider] ?? "",
       system,
       prompt,
+      ...(opts.job ? { job: opts.job } : {}),
     },
   });
 }
+
+/** Ends every CLI the job runs (with the processes they started) and refuses the job's later calls. */
+export const cancelJob = (job: string) => invoke<void>("ai_cancel_job", { job });
+/** Forgets a finished job in the app's process registry. */
+export const endJob = (job: string) => invoke<void>("ai_end_job", { job });
 
 export const errorText = (e: unknown) =>
   typeof e === "string" ? e : e instanceof Error ? e.message : String(e);

@@ -1,19 +1,12 @@
 import { invoke } from "@tauri-apps/api/core";
-import { AlertTriangle, Check, FileUp, Globe, Loader2, Play, RefreshCw, ShieldCheck, Sparkles, Trash2 } from "lucide-react";
+import { AlertTriangle, Check, FileUp, Globe, Loader2, Play, RefreshCw, ShieldCheck, Sparkles, Square, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { errorText, geminiKeyStored, loadAiSettings, PROVIDERS } from "../lib/ai";
-import {
-  addReferenceDoc,
-  deleteReferenceDoc,
-  listReferenceDocs,
-  referenceMaterial,
-  saveGenMeta,
-  saveImportedTest,
-  setReferenceDocEnabled,
-  type ReferenceDoc,
-} from "../lib/repo";
-import { generateToeic, reportLine, UNIT_LABEL, UNIT_PARTS, type ToeicGenReport, type ToeicStep, type ToeicUnit } from "../lib/toeicGen";
-import { loadTrendBrief, officialBrief, trendAgeDays, trendSection, type TrendBrief } from "../lib/trend";
+import { BUSY, elapsedText, isBusy } from "../lib/jobStore";
+import { addReferenceDoc, deleteReferenceDoc, listReferenceDocs, referenceMaterial, setReferenceDocEnabled, type ReferenceDoc } from "../lib/repo";
+import { reportLine, UNIT_LABEL, UNIT_PARTS, type ToeicStep, type ToeicUnit } from "../lib/toeicGen";
+import { cancelGenJob, dismissGenJob, sectionLabel, startGenJob, useGenJob, type GenSection } from "../lib/toeicJob";
+import { loadTrendBrief, officialBrief, trendAgeDays, type TrendBrief } from "../lib/trend";
 import type { Target } from "../lib/toeicSpec";
 import Hint from "./Hint";
 
@@ -44,26 +37,27 @@ const STEP_LABEL: Record<ToeicStep, string> = {
   done: "완료",
 };
 
+const isUnit = (s: GenSection): s is ToeicUnit => s !== "media";
+
 /**
  * Studio › AI로 만들기: a whole Listening and Reading test (or chosen parts) written and checked by the signed-in CLI.
  * A full test is saved as two sets, Listening (1–100) and Reading (101–200), each scored on its own 5–495 scale.
+ * The work runs as an app-wide job (src/lib/toeicJob.ts), so leaving this screen neither stops nor hides it.
  */
 export default function ToeicGeneratePanel({ onCreated }: { onCreated: (testId: number) => void }) {
-  const [units, setUnits] = useState<ToeicUnit[]>(UNITS.map((u) => u.id));
+  const job = useGenJob();
+  const busy = isBusy(job);
+  const [units, setUnits] = useState<ToeicUnit[]>(job.status !== "idle" ? job.sections.filter(isUnit) : UNITS.map((u) => u.id));
   const [target, setTarget] = useState<Target>("750");
   const [topics, setTopics] = useState("");
   const [useRefs, setUseRefs] = useState(true);
   const [docs, setDocs] = useState<ReferenceDoc[]>([]);
   const [refInfo, setRefInfo] = useState<{ tests: number; chars: number } | null>(null);
   const [geminiKey, setGeminiKey] = useState<boolean | null>(null);
-  const [progress, setProgress] = useState<Partial<Record<ToeicUnit | "media", ToeicStep>>>({});
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [reports, setReports] = useState<ToeicGenReport[] | null>(null);
-  /** Both sets of a full test, offered side by side once saved. */
-  const [saved, setSaved] = useState<{ id: number; kind: "listening" | "reading" }[]>([]);
   const [brief, setBrief] = useState<TrendBrief | null>(loadTrendBrief());
   const [checking, setChecking] = useState(false);
+  const [now, setNow] = useState(Date.now());
   const fileRef = useRef<HTMLInputElement>(null);
 
   const settings = loadAiSettings();
@@ -81,6 +75,18 @@ export default function ToeicGeneratePanel({ onCreated }: { onCreated: (testId: 
     refresh();
     geminiKeyStored().then(setGeminiKey, () => setGeminiKey(null));
   }, []);
+
+  // The elapsed time ticks while the job runs.
+  useEffect(() => {
+    if (!busy) return;
+    const t = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(t);
+  }, [busy]);
+
+  // The job reads the official-site brief (and refreshes it when it is old); show the one it used.
+  useEffect(() => {
+    if (job.status !== "running") setBrief(loadTrendBrief());
+  }, [job.status]);
 
   const toggle = (u: ToeicUnit) =>
     setUnits((x) => (x.includes(u) ? x.filter((y) => y !== u) : UNITS.map((t) => t.id).filter((t) => x.includes(t) || t === u)));
@@ -103,66 +109,32 @@ export default function ToeicGeneratePanel({ onCreated }: { onCreated: (testId: 
   const checkTrend = async (force: boolean) => {
     setChecking(true);
     try {
-      const b = await officialBrief(loadAiSettings(), force);
-      setBrief(b);
-      return b;
+      setBrief(await officialBrief(loadAiSettings(), force));
     } finally {
       setChecking(false);
     }
   };
 
-  const run = async () => {
-    setBusy(true);
+  const run = () => {
     setError(null);
-    setReports(null);
-    setSaved([]);
-    setProgress({});
     try {
-      const references = useRefs ? (await referenceMaterial()).text : "";
-      const listening = units.some((u) => UNIT_PARTS[u][0] <= 4);
-      const media = geminiKey === true && listening;
-      const checked = await checkTrend(false);
-      const trend = trendSection(checked);
-      const result = await generateToeic(
-        loadAiSettings(),
-        { units, target, topics, references, speech: media, images: media && units.includes("p12"), trend },
-        (unit, step) => setProgress((p) => ({ ...p, [unit]: step })),
-      );
-      const band = Number(target);
-      const ids: { id: number; kind: (typeof result.tests)[number]["kind"] }[] = [];
-      for (const t of result.tests) {
-        const id = await saveImportedTest(t, "ai");
-        await saveGenMeta(id, {
-          topic: topics.trim() || "(AI가 고름)",
-          band,
-          provider: settings.provider,
-          model: settings.models[settings.provider] ?? "",
-          options: {
-            exam: "toeic",
-            target,
-            units,
-            references: useRefs,
-            trendCheckedAt: checked?.checkedAt ?? null,
-            verification: result.reports
-              .filter((r) => (t.kind === "listening") === (UNIT_PARTS[r.unit][0] <= 4))
-              .map((r) => ({ unit: r.unit, checker: r.checker, cross: r.cross, line: reportLine(r) })),
-          },
-        });
-        ids.push({ id, kind: t.kind });
-      }
-      setReports(result.reports);
-      if (ids.length === 1) onCreated(ids[0].id);
-      else setSaved(ids);
+      void startGenJob({ settings: loadAiSettings(), units, target, topics, useRefs, geminiKey: geminiKey === true });
     } catch (e) {
       setError(errorText(e));
-    } finally {
-      setBusy(false);
     }
+  };
+
+  /** Opens a set the job made; only when the user asks, so a finished job never pulls them off another screen. */
+  const open = (testId: number) => {
+    dismissGenJob();
+    onCreated(testId);
   };
 
   // write, proofread, blind solve, editor, and a rewrite or refill when needed; plus one read of the official sites.
   const calls = units.length * 5 + 1;
   const needsVoice = units.some((u) => UNIT_PARTS[u][0] <= 4);
+  const shown = busy || job.status === "done";
+  const sets = job.status === "done" ? (job.result?.sets ?? []) : [];
 
   return (
     <div className="gen">
@@ -277,9 +249,24 @@ export default function ToeicGeneratePanel({ onCreated }: { onCreated: (testId: 
       </div>
 
       <div className="toolbar gen-go">
-        <button className="btn primary" disabled={busy || units.length === 0} onClick={() => void run()}>
+        <button className="btn primary" disabled={busy || checking || units.length === 0} title={busy ? BUSY : undefined} onClick={run}>
           {busy ? <Loader2 size={14} className="spin" /> : <Sparkles size={14} />} {units.length === UNITS.length ? "200문항 한 회분 만들기" : "만들기"}
         </button>
+        {job.status === "running" && (
+          <button className="btn" title="실행 중인 AI를 끄고, 이번에 만든 것은 저장하지 않습니다." onClick={() => cancelGenJob()}>
+            <Square size={12} /> 취소
+          </button>
+        )}
+        {job.status === "saving" && (
+          <button className="btn" disabled title="저장은 곧 끝납니다. 반쯤 저장된 세트가 남지 않도록 이때는 취소할 수 없습니다.">
+            <Loader2 size={12} className="spin" /> 저장 중
+          </button>
+        )}
+        {job.status === "cancelling" && (
+          <button className="btn" disabled title="실행 중인 AI가 끝나기를 기다립니다. 끝나면 새로 만들 수 있습니다.">
+            <Loader2 size={12} className="spin" /> 취소하는 중…
+          </button>
+        )}
         <span className="muted">
           AI 약 {calls}회{needsVoice && geminiKey ? " · Gemini 사진·음성" : ""} · {units.length * 2}–{units.length * 5}분
         </span>
@@ -288,14 +275,25 @@ export default function ToeicGeneratePanel({ onCreated }: { onCreated: (testId: 
         )}
       </div>
 
-      {(busy || reports) && (
+      {shown && (
+        <div className="gen-progress">
+          <div className="gen-bar" role="progressbar" aria-label="AI 생성 진행률" aria-valuemin={0} aria-valuemax={100} aria-valuenow={job.percent}>
+            <span className={`gen-bar-fill${job.status === "running" || job.status === "saving" ? " live" : ""}`} style={{ width: `${job.percent}%` }} />
+          </div>
+          <span className="muted gen-progress-text">
+            {job.percent}% · {job.step} · {elapsedText(job, now)}
+          </span>
+        </div>
+      )}
+
+      {shown && (
         <ol className="gen-steps">
-          {[...UNITS.filter((u) => units.includes(u.id)).map((u) => ({ id: u.id as ToeicUnit | "media", label: UNIT_LABEL[u.id] })), ...(needsVoice && geminiKey ? [{ id: "media" as const, label: "사진·음성" }] : [])].map((s) => {
-            const step = progress[s.id];
+          {job.sections.map((s) => {
+            const step = job.progress[s];
             const done = step === "done";
             return (
-              <li key={s.id} className={done ? "done" : step ? "now" : ""}>
-                {done ? <Check size={13} /> : step ? <Loader2 size={13} className="spin" /> : <span className="dot" />} {s.label}
+              <li key={s} className={done ? "done" : step ? "now" : ""}>
+                {done ? <Check size={13} /> : step ? <Loader2 size={13} className="spin" /> : <span className="dot" />} {sectionLabel(s)}
                 {step && !done && <span className="muted"> · {STEP_LABEL[step]}</span>}
               </li>
             );
@@ -303,29 +301,47 @@ export default function ToeicGeneratePanel({ onCreated }: { onCreated: (testId: 
         </ol>
       )}
 
-      {reports && (
+      {job.status === "done" && (
         <div className="gen-report">
-          {reports[0] && (
+          {job.reports?.[0] && (
             <p className="small">
-              <ShieldCheck size={13} /> 검증: {reports[0].writer}가 쓰고 같은 AI가 새 대화에서 교정하고 정답을 가린 채 풀었습니다.
+              <ShieldCheck size={13} /> 검증: {job.reports[0].writer}가 쓰고 같은 AI가 새 대화에서 교정하고 정답을 가린 채 풀었습니다.
             </p>
           )}
-          {reports.map((r) => (
+          {job.reports?.map((r) => (
             <p key={r.unit} className="muted">
               {UNIT_LABEL[r.unit]}: {reportLine(r)}
               {r.notes.length ? ` · 기준 미달: ${r.notes.join(" · ")}` : " · 형식 기준 통과"}
             </p>
           ))}
+          <div className="toolbar gen-result">
+            {sets.length > 1 && <span className="success">두 세트를 저장했습니다. 'AI 생성 세트'에서도 열 수 있습니다.</span>}
+            {sets.map((t) => (
+              <button key={t.testId} className="btn primary small" onClick={() => open(t.testId)}>
+                <Play size={13} /> {sets.length === 1 ? "세트 열기" : t.kind === "listening" ? "Listening 풀기" : "Reading 풀기"}
+              </button>
+            ))}
+            <button className="btn ghost small" onClick={dismissGenJob}>
+              닫기
+            </button>
+          </div>
         </div>
       )}
-      {saved.length > 1 && (
-        <div className="accent-row">
-          <span className="success">두 세트를 저장했습니다.</span>
-          {saved.map((t) => (
-            <button key={t.id} className="btn small" onClick={() => onCreated(t.id)}>
-              <Play size={13} /> {t.kind === "listening" ? "Listening 풀기" : "Reading 풀기"}
-            </button>
-          ))}
+      {job.status === "failed" && (
+        <div className="gen-report">
+          <p className="error">{job.error}</p>
+          <button className="btn ghost small" onClick={dismissGenJob}>
+            닫기
+          </button>
+        </div>
+      )}
+      {job.status === "cancelled" && (
+        <div className="gen-report">
+          <p className="muted">생성을 취소했습니다. 저장한 것은 없습니다.</p>
+          {job.error && <p className="error">{job.error}</p>}
+          <button className="btn ghost small" onClick={dismissGenJob}>
+            닫기
+          </button>
         </div>
       )}
       {error && <p className="error">{error}</p>}
