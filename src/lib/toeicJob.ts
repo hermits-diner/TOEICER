@@ -38,6 +38,7 @@ export const STEP_SHORT: Record<ToeicStep, string> = {
   check: "형식 측정",
   rewrite: "고쳐 쓰기",
   proof: "교정",
+  reproof: "고쳐 쓰고 다시 교정",
   solve: "정답 가린 풀이",
   fix: "애매한 문항 검토",
   refill: "뺀 문항 다시 쓰기",
@@ -56,7 +57,7 @@ export const JOB_TEXT: Record<Exclude<JobStatus, "idle" | "running" | "saving">,
 };
 
 /** The stages every unit goes through in this order; the photographs and speech are one stage of their own. */
-const PLAN: Plan<ToeicStep> = [["write"], ["check", "rewrite"], ["proof"], ["solve"], ["fix"], ["refill"]];
+const PLAN: Plan<ToeicStep> = [["write"], ["check", "rewrite"], ["proof", "reproof"], ["solve"], ["fix"], ["refill"]];
 const MEDIA_PLAN: Plan<ToeicStep> = [["media"]];
 /** Writing the units (and the media) takes this share of the bar; saving the rest. */
 const WRITING_SHARE = 95;

@@ -22,7 +22,7 @@ vi.mock("./tts", () => ({
 const invoke = vi.fn(async () => `img-${"2".repeat(32)}.png`);
 vi.mock("@tauri-apps/api/core", () => ({ invoke }));
 
-const { generateToeic, MEASURE, PARSE, balance, cues, itemName, reportLine } = await import("./toeicGen");
+const { generateToeic, MEASURE, PARSE, PROOF_SYSTEM, SOLVER_SYSTEM, WRITER_SYSTEM, balance, cues, itemName, reportLine } = await import("./toeicGen");
 const { geminiSynthesize } = await import("./tts");
 const settings = { provider: "claude-cli", ttsModel: "tts", imageModel: "img" } as never;
 const clean = () => JSON.stringify({ faults: [] });
@@ -157,9 +157,9 @@ describe("generateToeic", () => {
       }
       return JSON.stringify({ answers });
     };
-    // The rewrite of P1 is dropped again, so it stays out.
+    // The rewrite of P1 is proofread, then dropped again, so it stays out.
     const rewrite = () => JSON.stringify({ items: [{ id: "P1", scene: "Two men are carrying a box.", statements: ["t1", "t2", "t3", "t4"], answer: "A" }] });
-    replies = [() => JSON.stringify(fixtures.p12()), clean, solver, drop, rewrite, solve(() => "C"), () => JSON.stringify({ decisions: [{ id: "P1", action: "drop" }] })];
+    replies = [() => JSON.stringify(fixtures.p12()), clean, solver, drop, rewrite, clean, solve(() => "C"), () => JSON.stringify({ decisions: [{ id: "P1", action: "drop" }] })];
     const r = await generateToeic(settings, { units: ["p12"], target: "600", topics: "hotel", speech: false, images: false });
     const t = r.tests[0];
     expect(t.passages.filter((p) => p.title?.startsWith("Part 1"))).toHaveLength(B[1].items - 1);
@@ -172,7 +172,8 @@ describe("generateToeic", () => {
   it("writes a dropped item again and keeps the rewrite when it checks out", async () => {
     const drop = () => JSON.stringify({ decisions: [{ id: "P1", action: "drop" }] });
     const rewrite = () => JSON.stringify({ items: [{ id: "P1", scene: "Two men are carrying a box.", statements: ["t1", "t2", "t3", "t4"], answer: "B" }] });
-    replies = [() => JSON.stringify(fixtures.p12()), clean, solve((id) => (id === "P1" ? "D" : undefined)), drop, rewrite, solve(() => "B")];
+    // the new P1 is proofread (clean) before it is solved
+    replies = [() => JSON.stringify(fixtures.p12()), clean, solve((id) => (id === "P1" ? "D" : undefined)), drop, rewrite, clean, solve(() => "B")];
     const r = await generateToeic(settings, { units: ["p12"], target: "750", topics: "", speech: false, images: false }, () => {}, { job: "job-r" });
     expect(r.tests[0].passages.filter((p) => p.title?.startsWith("Part 1"))).toHaveLength(B[1].items);
     expect(r.tests[0].passages[0].groups[0].instructions).toContain("Two men are carrying a box.");
@@ -187,16 +188,18 @@ describe("generateToeic", () => {
     replies = [
       () => JSON.stringify(fixtures.p3()),
       () => JSON.stringify({ faults: [{ id: "C2.1", fault: "the times go backwards" }] }),
-      () => JSON.stringify(fixtures.p3()),
+      () => JSON.stringify({ items: [{ id: "C2.1", prompt: "When does the meeting start?", options: ["At nine", "At ten", "At noon", "At two"], answer: "A" }] }),
+      clean,
       solve(undefined, ["C1.2"]),
       () => JSON.stringify({ decisions: [{ id: "C1.2", action: "keep" }] }),
     ];
     const r = await generateToeic(settings, { units: ["p3"], target: "750", topics: "", speech: false, images: false }, () => {}, { job: "job-p" });
     expect(calls.every((c) => c.job === "job-p")).toBe(true);
-    expect(calls[2].prompt).toContain("- conversation 2 Q1: the times go backwards");
-    expect(calls[4].prompt).toContain("### C1.2");
-    expect(calls[4].prompt).toContain("(flagged as ambiguous)");
-    expect(r.reports[0]).toMatchObject({ proofed: 1, flagged: ["C1.2"], agreed: 39, total: 39, dropped: [] });
+    expect(calls[2].prompt).toContain("### C2.1");
+    expect(calls[2].prompt).toContain("- the times go backwards");
+    expect(calls[5].prompt).toContain("### C1.2");
+    expect(calls[5].prompt).toContain("(flagged as ambiguous)");
+    expect(r.reports[0]).toMatchObject({ proofed: 1, reproofed: 0, flagged: ["C1.2"], agreed: 39, total: 39, dropped: [] });
     expect(reportLine(r.reports[0])).toBe("일치 39/39 · 애매 표시 1 · 교정 1");
   });
 
@@ -215,6 +218,207 @@ describe("generateToeic", () => {
     replies = [() => JSON.stringify(fixtures.p4()), clean, solve()];
     await generateToeic(settings, { units: ["p4"], target: "750", topics: "", speech: false, images: false, trend: ["", "# 최신 출제 동향 (공식 사이트 2026-10-29 확인)", "2016년 개정 구성 유지"] });
     expect(calls[0].prompt).toContain("# 최신 출제 동향 (공식 사이트 2026-10-29 확인)\n2016년 개정 구성 유지");
+  });
+});
+
+describe("proofreading", () => {
+  const faults = (...f: [string, string][]) => () => JSON.stringify({ faults: f.map(([id, fault]) => ({ id, fault })) });
+  const items = (...it: object[]) => () => JSON.stringify({ items: it });
+  /** The ids a prompt shows, in order. */
+  const blocks = (prompt: string) => [...prompt.matchAll(/^### (\S+)/gm)].map((m) => m[1]);
+  const only = (unit: "p12" | "p3" | "p4") => ({ units: [unit], target: "750" as const, topics: "", speech: false, images: false });
+  const systems = () => calls.map((c) => c.system);
+  const qr2 = (question: string) => ({ id: "Q2", question, responses: ["r1", "r2", "r3"], answer: "B" });
+  /** Conversation `id` written again with new lines (the fixture's sixth set has no graphic). */
+  const conversation = (id: string, line: string) => ({ ...fixtures.p3().sets[5], id, turns: times(8, (k) => ({ speaker: k % 2 ? "B" : "A", text: `${line} ${k} ${words(12)}` })) });
+  const part = (t: { passages: { title?: string }[] }, prefix: string) => t.passages.filter((p) => p.title?.startsWith(prefix));
+  const part2Count = (t: { passages: { title?: string; groups: { questions: unknown[] }[] }[] }) =>
+    part(t, "Part 2").reduce((n, p) => n + (p as { groups: { questions: unknown[] }[] }).groups[0].questions.length, 0);
+
+  it("rewrites only the faulted question, puts it back in its place and proofreads only the rewrite", async () => {
+    const newC21 = { id: "C2.1", prompt: "When does the meeting start?", options: ["At nine", "At ten", "At noon", "At two"], answer: "A" };
+    replies = [() => JSON.stringify(fixtures.p3()), faults(["C2.1", "options A and C say the same thing"]), items(newC21), clean, solve()];
+
+    const r = await generateToeic(settings, only("p3"), () => {}, { job: "job-p1" });
+
+    expect(systems()).toEqual([WRITER_SYSTEM, PROOF_SYSTEM, WRITER_SYSTEM, PROOF_SYSTEM, SOLVER_SYSTEM]);
+    // the first proofreading shows each conversation once, with its questions under it
+    expect(blocks(calls[1].prompt).slice(0, 5)).toEqual(["C1", "C1.1", "C1.2", "C1.3", "C2"]);
+    // the writer gets that one question (its script only as context) and its fault, nothing else
+    expect(blocks(calls[2].prompt)).toEqual(["C2.1"]);
+    expect(calls[2].prompt).toContain("- options A and C say the same thing");
+    expect(calls[2].prompt).toContain("(do not change)");
+    // the second proofreading covers the rewritten question only
+    expect(blocks(calls[3].prompt)).toEqual(["C2.1"]);
+    expect(calls[3].prompt).toContain("When does the meeting start?");
+    // the rewrite is in place; every other question is as first written
+    const conversations = part(r.tests[0], "Part 3") as { groups: { questions: { prompt?: string }[] }[] }[];
+    expect(conversations[1].groups[0].questions.map((q) => q.prompt)).toEqual(["When does the meeting start?", "What is the purpose?", "What is the purpose?"]);
+    expect(conversations.filter((_, i) => i !== 1).every((c) => c.groups[0].questions.every((q) => q.prompt === "What is the purpose?"))).toBe(true);
+    expect(r.reports[0]).toMatchObject({ proofed: 1, reproofed: 0, dropped: [], refilled: [], total: 39, agreed: 39 });
+    expect(calls.every((c) => c.by === "claude-cli" && c.job === "job-p1")).toBe(true);
+  });
+
+  it("rewrites a conversation with its questions as one unit when the fault is in the script", async () => {
+    const c3 = { ...fixtures.p3().sets[2], id: "C3", turns: times(8, (k) => ({ speaker: k % 2 ? "B" : "A", text: `Fixed line ${k} ${words(12)}` })) };
+    replies = [() => JSON.stringify(fixtures.p3()), faults(["C3", "the woman's name changes"], ["C3.2", "the answer is stated twice"]), items(c3), clean, solve()];
+
+    const r = await generateToeic(settings, only("p3"), () => {}, { job: "job-p5" });
+
+    expect(blocks(calls[2].prompt)).toEqual(["C3"]);
+    expect(calls[2].prompt).toContain("- the woman's name changes");
+    expect(calls[2].prompt).toContain("C3.2: the answer is stated twice");
+    expect(blocks(calls[3].prompt)).toEqual(["C3", "C3.1", "C3.2", "C3.3"]);
+    expect((part(r.tests[0], "Part 3")[2] as { body?: string }).body).toContain("Fixed line 0");
+    expect(r.reports[0]).toMatchObject({ proofed: 2, reproofed: 0, dropped: [] });
+    expect(calls).toHaveLength(5);
+  });
+
+  it("drops an item still faulted after its rewrite, writes it again and proofreads the new one before solving it", async () => {
+    replies = [
+      () => JSON.stringify(fixtures.p12()),
+      faults(["Q2", "no response answers the question"]),
+      items(qr2("Question 1 again?")),
+      faults(["Q2", "still no response answers it"]),
+      solve(),
+      items(qr2("Where is the seminar?")),
+      clean,
+      solve(),
+    ];
+
+    const r = await generateToeic(settings, only("p12"), () => {}, { job: "job-p2" });
+
+    expect(systems()).toEqual([WRITER_SYSTEM, PROOF_SYSTEM, WRITER_SYSTEM, PROOF_SYSTEM, SOLVER_SYSTEM, WRITER_SYSTEM, PROOF_SYSTEM, SOLVER_SYSTEM]);
+    expect(blocks(calls[3].prompt)).toEqual(["Q2"]);
+    // the dropped item is not solved; it is written again with the fault that sank it
+    expect(blocks(calls[4].prompt)).not.toContain("Q2");
+    expect(blocks(calls[5].prompt)).toEqual(["Q2"]);
+    expect(calls[5].prompt).toContain("still no response answers it");
+    // the replacement is proofread before the blind solve
+    expect(blocks(calls[6].prompt)).toEqual(["Q2"]);
+    expect(calls[6].prompt).toContain("Where is the seminar?");
+    expect(blocks(calls[7].prompt)).toEqual(["Q2"]);
+    expect(r.reports[0]).toMatchObject({ proofed: 1, reproofed: 1, refilled: ["Q2"], dropped: [], total: 30, agreed: 30 });
+    expect(part2Count(r.tests[0])).toBe(25);
+    expect(part(r.tests[0], "Part 2").some((p) => (p as { body?: string }).body?.includes("Where is the seminar?"))).toBe(true);
+    expect(calls.every((c) => c.by === "claude-cli" && c.job === "job-p2")).toBe(true);
+  });
+
+  it("keeps a replacement out when its proofreading finds a fault", async () => {
+    replies = [
+      () => JSON.stringify(fixtures.p12()),
+      faults(["Q2", "no response answers the question"]),
+      items(qr2("Question 1 again?")),
+      faults(["Q2", "still no response answers it"]),
+      solve(),
+      items(qr2("Where is the seminar?")),
+      faults(["Q2", "a preposition is missing"]),
+    ];
+
+    const r = await generateToeic(settings, only("p12"));
+
+    expect(calls).toHaveLength(7);
+    expect(r.reports[0]).toMatchObject({ refilled: [], dropped: ["Q2"] });
+    expect(part2Count(r.tests[0])).toBe(24);
+  });
+
+  it("rewrites and proofreads again every unit when the first proofreading gives a fault no item", async () => {
+    const raw = fixtures.p4();
+    replies = [() => JSON.stringify(raw), faults(["", "American and British spelling are mixed"]), items(...raw.sets.map((s, i) => ({ id: `T${i + 1}`, ...s }))), clean, solve()];
+
+    const r = await generateToeic(settings, only("p4"), () => {}, { job: "job-p4" });
+
+    const talks = times(10, (i) => `T${i + 1}`);
+    expect(blocks(calls[2].prompt)).toEqual(talks);
+    expect(calls[2].prompt).toContain("- American and British spelling are mixed");
+    expect(blocks(calls[3].prompt)).toEqual(talks.flatMap((t) => [t, `${t}.1`, `${t}.2`, `${t}.3`]));
+    expect(r.reports[0]).toMatchObject({ proofed: 1, reproofed: 0, dropped: [], total: 30, agreed: 30 });
+    expect(calls).toHaveLength(5);
+    expect(calls.every((c) => c.job === "job-p4")).toBe(true);
+  });
+
+  it("keeps a replacement out when its proofreading gives a fault an id it does not show", async () => {
+    replies = [
+      () => JSON.stringify(fixtures.p12()),
+      faults(["Q2", "no response answers the question"]),
+      items(qr2("Question 1 again?")),
+      faults(["Q2", "still no response answers it"]),
+      solve(),
+      items(qr2("Where is the seminar?")),
+      // the only item shown is the replacement, so the fault is its fault
+      faults(["Q7", "a preposition is missing"]),
+      solve(),
+    ];
+
+    const r = await generateToeic(settings, only("p12"));
+
+    expect(calls).toHaveLength(7);
+    expect(r.reports[0]).toMatchObject({ refilled: [], dropped: ["Q2"] });
+  });
+
+  it("drops a rewritten item when the second proofreading gives its fault no known id", async () => {
+    replies = [
+      () => JSON.stringify(fixtures.p12()),
+      faults(["Q2", "no response answers the question"]),
+      items(qr2("Question 1 again?")),
+      faults(["", "still no response answers it"]),
+      solve(),
+      items(qr2("Where is the seminar?")),
+      clean,
+      solve(),
+    ];
+
+    const r = await generateToeic(settings, only("p12"));
+
+    expect(blocks(calls[4].prompt)).not.toContain("Q2");
+    expect(calls[5].prompt).toContain("still no response answers it");
+    expect(r.reports[0]).toMatchObject({ reproofed: 1, refilled: ["Q2"], dropped: [] });
+  });
+
+  it("writes a whole new conversation when the script is still faulted after its rewrite, and proofreads it before solving it", async () => {
+    replies = [
+      () => JSON.stringify(fixtures.p3()),
+      faults(["C6", "the man contradicts himself"]),
+      items(conversation("C6", "Second try")),
+      faults(["C6", "he still contradicts himself"]),
+      solve(),
+      items(conversation("C6", "Brand new")),
+      clean,
+      solve(),
+    ];
+
+    const r = await generateToeic(settings, only("p3"), () => {}, { job: "job-p6" });
+
+    expect(systems()).toEqual([WRITER_SYSTEM, PROOF_SYSTEM, WRITER_SYSTEM, PROOF_SYSTEM, SOLVER_SYSTEM, WRITER_SYSTEM, PROOF_SYSTEM, SOLVER_SYSTEM]);
+    expect(blocks(calls[4].prompt).some((id) => id.startsWith("C6."))).toBe(false);
+    expect(blocks(calls[5].prompt)).toEqual(["C6"]);
+    expect(calls[5].prompt).toContain("he still contradicts himself");
+    expect(blocks(calls[6].prompt)).toEqual(["C6", "C6.1", "C6.2", "C6.3"]);
+    expect(blocks(calls[7].prompt)).toEqual(["C6.1", "C6.2", "C6.3"]);
+    const conversations = part(r.tests[0], "Part 3") as { body?: string }[];
+    expect(conversations).toHaveLength(13);
+    expect(conversations[5].body).toContain("Brand new 0");
+    expect(r.reports[0]).toMatchObject({ proofed: 1, reproofed: 1, refilled: ["C6"], dropped: [], total: 36, agreed: 36 });
+    expect(calls.every((c) => c.job === "job-p6")).toBe(true);
+  });
+
+  it("leaves a conversation out, by name, when it cannot be written again", async () => {
+    replies = [
+      () => JSON.stringify(fixtures.p3()),
+      faults(["C6", "the man contradicts himself"]),
+      items(conversation("C6", "Second try")),
+      faults(["C6", "he still contradicts himself"]),
+      solve(),
+      items(),
+    ];
+
+    const r = await generateToeic(settings, only("p3"));
+
+    expect(calls).toHaveLength(6);
+    expect(part(r.tests[0], "Part 3")).toHaveLength(12);
+    expect(r.reports[0]).toMatchObject({ refilled: [], dropped: ["C6"] });
+    expect(reportLine(r.reports[0])).toContain("제외 대화 6");
+    expect(reportLine(r.reports[0])).toContain("다시 교정 지적 1");
   });
 });
 

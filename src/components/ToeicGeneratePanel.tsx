@@ -30,6 +30,7 @@ const STEP_LABEL: Record<ToeicStep, string> = {
   check: "실제 시험 형식과 출제 지침으로 측정",
   rewrite: "어긋난 부분을 고쳐 다시 쓰는 중",
   proof: "다른 AI가 문법·사실 오류 교정",
+  reproof: "지적된 문항·지문만 고쳐 쓰고 다시 교정",
   solve: "다른 AI가 정답을 가린 채 풀어 보는 중",
   fix: "풀이가 엇갈리거나 애매한 문항 검토",
   refill: "뺀 문항을 다시 쓰고 다시 검증",

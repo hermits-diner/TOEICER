@@ -263,7 +263,7 @@ describe("genPercent", () => {
   it("never goes backwards through a whole run, skipped steps included", () => {
     // What generateToeic reports when a unit needs no rewrite or refill, then the photos and speech.
     const run: [GenSection, ToeicStep][] = [
-      ...(["write", "check", "rewrite", "proof", "solve", "fix", "refill", "done"] as const).map((s) => ["p12", s] as [GenSection, ToeicStep]),
+      ...(["write", "check", "rewrite", "proof", "reproof", "solve", "fix", "refill", "done"] as const).map((s) => ["p12", s] as [GenSection, ToeicStep]),
       ...(["write", "check", "proof", "solve", "done"] as const).map((s) => ["p3", s] as [GenSection, ToeicStep]),
       ...(["write", "check", "proof", "solve", "fix", "done"] as const).map((s) => ["p4", s] as [GenSection, ToeicStep]),
       ...(["write", "check", "proof", "solve", "refill", "done"] as const).map((s) => ["p56", s] as [GenSection, ToeicStep]),
@@ -286,5 +286,7 @@ describe("genPercent", () => {
   it("gives each part an equal share, a part that skips its refill counting as finished", () => {
     expect(genPercent(["p3", "p56"], { p3: "done", p56: "write" }, "running")).toBe(48);
     expect(genPercent(["p3", "p56"], { p3: "fix" }, "running")).toBeLessThan(48);
+    // rewriting the faulted units and proofreading them again is part of the proofreading stage
+    expect(genPercent(["p3"], { p3: "reproof" }, "running")).toBe(genPercent(["p3"], { p3: "proof" }, "running"));
   });
 });

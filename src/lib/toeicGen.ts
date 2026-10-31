@@ -1,11 +1,14 @@
 // Writes original TOEIC Listening and Reading practice with the CLI the learner is signed in to, then checks it so
 // that no human review is needed: measure against the real part sizes and the item-writing rules (including option
 // give-aways) → rewrite once if they miss → an independent checker (a fresh conversation with the same CLI, so no
-// other CLI is ever called) proofreads the language and the internal facts of every script and text → the checker
-// solves blind with the key hidden (listening items from their scripts), flagging items it finds ambiguous → the
-// editor keeps, rekeys or drops each item the checker answered differently or flagged → dropped items are written
-// once more and checked again → keys spread over the letters → photos (Part 1) and speech (Parts 1–4) with Gemini →
-// a Listening test (1–100) and a Reading test (101–200), stored with the verification record.
+// other CLI is ever called) proofreads the language and the internal facts of every script and text → only the
+// faulted units (one item, or a conversation, talk or text with its questions) go back to the writer with their
+// faults and are put back in their places → the rewrites are proofread once more; what is still faulted is dropped
+// → the checker solves blind with the key hidden (listening items from their scripts), flagging items it finds
+// ambiguous → the editor keeps, rekeys or drops each item the checker answered differently or flagged → dropped
+// units are written once more, proofread and solved again → keys spread over the letters → photos (Part 1) and
+// speech (Parts 1–4) with Gemini → a Listening test (1–100) and a Reading test (101–200), stored with the
+// verification record.
 import { invoke } from "@tauri-apps/api/core";
 import { CANCELLED, complete, providerLabel, type AiSettings } from "./ai";
 import { extractJson } from "./json";
@@ -40,7 +43,7 @@ export interface ToeicGenOptions {
   trend?: string[];
 }
 
-export type ToeicStep = "write" | "check" | "rewrite" | "proof" | "solve" | "fix" | "refill" | "media" | "done";
+export type ToeicStep = "write" | "check" | "rewrite" | "proof" | "reproof" | "solve" | "fix" | "refill" | "media" | "done";
 
 export interface ToeicGenReport {
   unit: ToeicUnit;
@@ -54,12 +57,15 @@ export interface ToeicGenReport {
   agreed: number;
   /** Item ids the checker flagged as ambiguous even where it agreed. */
   flagged: string[];
-  /** Language or consistency faults the proofreader found (and the writer then fixed). */
+  /** Language or consistency faults the first proofreading found. */
   proofed: number;
+  /** Faults the second proofreading found in the units rewritten for them. Every TOEIC item has a key, so a unit
+   *  still faulted is dropped and written again (or left out); none is kept with its fault. */
+  reproofed: number;
   rekeyed: number;
-  /** Item ids dropped and successfully rewritten. */
+  /** Item or set ids dropped and successfully rewritten. */
   refilled: string[];
-  /** Item ids left out of the test (a Part 6 text leaves with all its blanks). */
+  /** Item or set ids left out of the test (a Part 6 text leaves with all its blanks). */
   dropped: string[];
   notes: string[];
 }
@@ -79,6 +85,7 @@ export const reportLine = (r: ToeicGenReport): string =>
     `일치 ${r.agreed}/${r.total}`,
     r.flagged.length ? `애매 표시 ${r.flagged.length}` : "",
     r.proofed ? `교정 ${r.proofed}` : "",
+    r.reproofed ? `다시 교정 지적 ${r.reproofed}` : "",
     r.rekeyed ? `정답 고침 ${r.rekeyed}` : "",
     r.refilled.length ? `다시 씀 ${r.refilled.map(itemName).join(", ")}` : "",
     r.dropped.length ? `제외 ${r.dropped.map(itemName).join(", ")}` : "",
@@ -284,45 +291,61 @@ function mcqProblems(label: string, qs: RawMcq[], n: number, options = 4): strin
 }
 const count = (label: string, have: number, need: number) => (have === need ? [] : [`${label}: ${have} (need ${need})`]);
 
+type Photo = P12["photos"][number];
+type Qr = P12["qr"][number];
+type Conversation = P3["sets"][number];
+type Talk = P4["sets"][number];
+type Part6Text = P56["part6"][number];
+type Set7 = P7["sets"][number];
+
+/* The rules one item or set meets on its own; MEASURE adds the counts across a unit. */
+const photoProblems = (label: string, p: Photo) => [...(p.scene ? [] : [`${label}: no scene`]), ...optionCheck(label, p.statements, p.answer)];
+const qrProblems = (label: string, q: Qr) => [...(q.question ? [] : [`${label}: no question`]), ...optionCheck(label, q.responses, q.answer, 3)];
+const blankMissing = (label: string, q: RawMcq) => (q.prompt.includes("-------") ? [] : [`${label}: no ------- blank`]);
+const conversationProblems = (label: string, s: Conversation) => [
+  ...(s.turns.length < 5 || s.turns.length > 12 ? [`${label}: ${s.turns.length} turns (need 6-10)`] : []),
+  ...(Object.keys(s.speakers).length > 2 ? [`${label}: more than two speakers`] : []),
+  ...mcqProblems(label, s.questions, B[3].perSet),
+];
+const talkProblems = (label: string, s: Talk) => [
+  ...(words(s.text) < 65 || words(s.text) > 150 ? [`${label}: ${words(s.text)} words (need 80-130)`] : []),
+  ...mcqProblems(label, s.questions, B[4].perSet),
+];
+const part6Problems = (label: string, t: Part6Text) => [
+  ...mcqProblems(label, t.questions, B[6].perText),
+  ...[1, 2, 3, 4].filter((k) => !t.text.includes(`---(${k})---`)).map((k) => `${label}: blank ---(${k})--- missing`),
+];
+const singleProblems = (label: string, s: Set7, n: number) => [
+  ...(s.texts.length !== 1 ? [`${label}: ${s.texts.length} texts (need 1)`] : []),
+  ...mcqProblems(label, s.questions, n),
+];
+
 export const MEASURE: { [U in ToeicUnit]: (d: Draft[U]) => string[] } = {
   p12: (d) => [
     ...count("photos", d.photos.length, B[1].items),
-    ...d.photos.flatMap((p, i) => [...(p.scene ? [] : [`photo ${i + 1}: no scene`]), ...optionCheck(`photo ${i + 1}`, p.statements, p.answer)]),
+    ...d.photos.flatMap((p, i) => photoProblems(`photo ${i + 1}`, p)),
     ...count("qr", d.qr.length, B[2].items),
-    ...d.qr.flatMap((q, i) => [...(q.question ? [] : [`qr ${i + 1}: no question`]), ...optionCheck(`qr ${i + 1}`, q.responses, q.answer, 3)]),
+    ...d.qr.flatMap((q, i) => qrProblems(`qr ${i + 1}`, q)),
   ],
   p3: (d) => [
     ...count("conversations", d.sets.length, B[3].sets),
     ...count("conversations with a graphic", d.sets.filter((s) => s.graphic).length, B[3].graphics),
-    ...d.sets.flatMap((s, i) => [
-      ...(s.turns.length < 5 || s.turns.length > 12 ? [`conversation ${i + 1}: ${s.turns.length} turns (need 6-10)`] : []),
-      ...(Object.keys(s.speakers).length > 2 ? [`conversation ${i + 1}: more than two speakers`] : []),
-      ...mcqProblems(`conversation ${i + 1}`, s.questions, B[3].perSet),
-    ]),
+    ...d.sets.flatMap((s, i) => conversationProblems(`conversation ${i + 1}`, s)),
   ],
   p4: (d) => [
     ...count("talks", d.sets.length, B[4].sets),
     ...count("talks with a graphic", d.sets.filter((s) => s.graphic).length, B[4].graphics),
-    ...d.sets.flatMap((s, i) => [
-      ...(words(s.text) < 65 || words(s.text) > 150 ? [`talk ${i + 1}: ${words(s.text)} words (need 80-130)`] : []),
-      ...mcqProblems(`talk ${i + 1}`, s.questions, B[4].perSet),
-    ]),
+    ...d.sets.flatMap((s, i) => talkProblems(`talk ${i + 1}`, s)),
   ],
   p56: (d) => [
     ...mcqProblems("part5", d.part5, B[5].items),
-    ...d.part5.flatMap((q, i) => (q.prompt.includes("-------") ? [] : [`part5 Q${i + 1}: no ------- blank`])),
+    ...d.part5.flatMap((q, i) => blankMissing(`part5 Q${i + 1}`, q)),
     ...count("part6 texts", d.part6.length, B[6].texts),
-    ...d.part6.flatMap((t, i) => [
-      ...mcqProblems(`part6 text ${i + 1}`, t.questions, B[6].perText),
-      ...[1, 2, 3, 4].filter((k) => !t.text.includes(`---(${k})---`)).map((k) => `part6 text ${i + 1}: blank ---(${k})--- missing`),
-    ]),
+    ...d.part6.flatMap((t, i) => part6Problems(`part6 text ${i + 1}`, t)),
   ],
   p7s: (d) => [
     ...count("single passages", d.sets.length, singles.length),
-    ...d.sets.flatMap((s, i) => [
-      ...(s.texts.length !== 1 ? [`single ${i + 1}: ${s.texts.length} texts (need 1)`] : []),
-      ...mcqProblems(`single ${i + 1}`, s.questions, singles[i] ?? s.questions.length),
-    ]),
+    ...d.sets.flatMap((s, i) => singleProblems(`single ${i + 1}`, s, singles[i] ?? s.questions.length)),
   ],
   p7m: (d) => {
     const sizes = d.sets.map((s) => s.texts.length);
@@ -336,8 +359,6 @@ export const MEASURE: { [U in ToeicUnit]: (d: Draft[U]) => string[] } = {
 
 /* ---------- Independent check: proofread, blind solve, editor, refill ---------- */
 
-type Photo = P12["photos"][number];
-type Qr = P12["qr"][number];
 /** One checked item as it sits in a draft. */
 type Slot = Photo | Qr | RawMcq;
 type Kind = "photo" | "qr" | "mcq" | "blank";
@@ -371,35 +392,46 @@ function view(k: Keyed): string {
   return show(k.context, q);
 }
 
-const script = (s: P3["sets"][number]) => s.turns.map((t) => `${s.speakers[t.speaker]?.role ?? t.speaker}: ${t.text}`).join("\n");
+const script = (s: Conversation) => s.turns.map((t) => `${s.speakers[t.speaker]?.role ?? t.speaker}: ${t.text}`).join("\n");
 const withGraphic = (text: string, graphic: string) => `${text}${graphic ? `\nGraphic:\n${graphic}` : ""}`;
+
+/** A script or text with questions on it: a Part 3 conversation, a Part 4 talk, a Part 6 text or a Part 7 set. */
+type Host = Conversation | Talk | Part6Text | Set7;
+/** The id letter of a unit's scripts and texts. */
+const HOST_LETTER: Partial<Record<ToeicUnit, string>> = { p3: "C", p4: "T", p56: "X", p7s: "R", p7m: "R" };
+
+/** A unit's scripts or texts, the draft's own list (changing it changes the draft). */
+function hostsOf(unit: ToeicUnit, d: Draft[ToeicUnit]): Host[] {
+  if (unit === "p3" || unit === "p4" || unit === "p7s" || unit === "p7m") return (d as P3 | P4 | P7).sets;
+  if (unit === "p56") return (d as P56).part6;
+  return [];
+}
+
+/** What a test taker reads or hears before a question on that script or text. */
+function hostContext(unit: ToeicUnit, h: Host): string {
+  if (unit === "p3") return withGraphic(script(h as Conversation), (h as Conversation).graphic);
+  if (unit === "p4") return withGraphic((h as Talk).text, (h as Talk).graphic);
+  if (unit === "p56") return (h as Part6Text).text;
+  return (h as Set7).texts.map((t) => `[${t.genre}]\n${t.text}`).join("\n\n");
+}
 
 /** Every item of a draft with a stable id: P/Q (Part 1/2), C (Part 3), T (Part 4), S/X (Part 5/6), R (Part 7). */
 export function slots(unit: ToeicUnit, d: Draft[ToeicUnit]): Keyed[] {
-  switch (unit) {
-    case "p12": {
-      const x = d as P12;
-      return [
-        ...x.photos.map((p, i): Keyed => ({ id: `P${i + 1}`, kind: "photo", context: "", item: p })),
-        ...x.qr.map((q, i): Keyed => ({ id: `Q${i + 1}`, kind: "qr", context: "", item: q })),
-      ];
-    }
-    case "p3":
-      return (d as P3).sets.flatMap((s, i) => s.questions.map((q, j): Keyed => ({ id: `C${i + 1}.${j + 1}`, kind: "mcq", context: withGraphic(script(s), s.graphic), item: q })));
-    case "p4":
-      return (d as P4).sets.flatMap((s, i) => s.questions.map((q, j): Keyed => ({ id: `T${i + 1}.${j + 1}`, kind: "mcq", context: withGraphic(s.text, s.graphic), item: q })));
-    case "p56": {
-      const x = d as P56;
-      return [
-        ...x.part5.map((q, i): Keyed => ({ id: `S${i + 1}`, kind: "mcq", context: "", item: q })),
-        ...x.part6.flatMap((t, i) => t.questions.map((q, j): Keyed => ({ id: `X${i + 1}.${j + 1}`, kind: "blank", context: t.text, item: q }))),
-      ];
-    }
-    default:
-      return (d as P7).sets.flatMap((s, i) =>
-        s.questions.map((q, j): Keyed => ({ id: `R${i + 1}.${j + 1}`, kind: "mcq", context: s.texts.map((t) => `[${t.genre}]\n${t.text}`).join("\n\n"), item: q })),
-      );
+  if (unit === "p12") {
+    const x = d as P12;
+    return [
+      ...x.photos.map((p, i): Keyed => ({ id: `P${i + 1}`, kind: "photo", context: "", item: p })),
+      ...x.qr.map((q, i): Keyed => ({ id: `Q${i + 1}`, kind: "qr", context: "", item: q })),
+    ];
   }
+  const part5 = unit === "p56" ? (d as P56).part5.map((q, i): Keyed => ({ id: `S${i + 1}`, kind: "mcq", context: "", item: q })) : [];
+  const kind: Kind = unit === "p56" ? "blank" : "mcq";
+  return [
+    ...part5,
+    ...hostsOf(unit, d).flatMap((h, i) =>
+      h.questions.map((q, j): Keyed => ({ id: `${HOST_LETTER[unit]}${i + 1}.${j + 1}`, kind, context: hostContext(unit, h), item: q })),
+    ),
+  ];
 }
 
 /** Maps every item of a draft in place: return the item (or a new one) to keep it, null to drop it. A Part 6 blank
@@ -437,27 +469,224 @@ function edit(unit: ToeicUnit, d: Draft[ToeicUnit], fn: (id: string, item: Slot)
   return removed;
 }
 
-/** The id in the words the writer's draft uses (measure labels), for faults sent back to it. */
-function writerLabel(unit: ToeicUnit, id: string): string {
-  const m = /^([PQCTSXR])(\d+)(?:\.(\d+))?$/.exec(id);
-  if (!m) return id;
+/* ---------- Units: what the proofreader judges and the writer rewrites on its own ---------- */
+
+/** Where an id points in a unit's draft. Ids are positions: P1 a photograph, Q1 a Part 2 item, S1 a Part 5 sentence,
+ *  C1 / T1 / X1 / R1 a conversation, talk, Part 6 text or Part 7 set (each with its questions), C1.2 one question on
+ *  it (X1.2 one blank). */
+type Loc = { kind: "photo" | "qr" | "s5" | "host"; i: number } | { kind: "q"; i: number; j: number };
+
+const normId = (v: unknown) =>
+  str(typeof v === "number" ? String(v) : v)
+    .toUpperCase()
+    .replace(/^#+/, "")
+    .replace(/\s+/g, "");
+/** "C1.2" → "C1": the script or text a question is on. */
+const hostId = (id: string) => /^([CTXR]\d+)\.\d+$/.exec(id)?.[1] ?? null;
+
+function locate(unit: ToeicUnit, d: Draft[ToeicUnit], id: string): Loc | null {
+  const m = /^([PQSCTXR])(\d+)(?:\.(\d+))?$/.exec(id);
+  if (!m) return null;
   const [, k, a, b] = m;
-  switch (k) {
-    case "P":
-      return `photo ${a}`;
-    case "Q":
-      return `qr ${a}`;
-    case "C":
-      return `conversation ${a} Q${b}`;
-    case "T":
-      return `talk ${a} Q${b}`;
-    case "S":
-      return `part5 Q${a}`;
-    case "X":
-      return `part6 text ${a} blank (${b})`;
-    default:
-      return `${unit === "p7s" ? "single" : "multi"} ${a} Q${b}`;
+  const i = Number(a) - 1;
+  if (k === "P" || k === "Q" || k === "S") {
+    const list = k === "P" ? (unit === "p12" ? (d as P12).photos : []) : k === "Q" ? (unit === "p12" ? (d as P12).qr : []) : unit === "p56" ? (d as P56).part5 : [];
+    return b === undefined && i >= 0 && i < list.length ? { kind: k === "P" ? "photo" : k === "Q" ? "qr" : "s5", i } : null;
   }
+  const hosts = hostsOf(unit, d);
+  if (HOST_LETTER[unit] !== k || i < 0 || i >= hosts.length) return null;
+  if (b === undefined) return { kind: "host", i };
+  const j = Number(b) - 1;
+  return j >= 0 && j < hosts[i].questions.length ? { kind: "q", i, j } : null;
+}
+
+/** A unit as the writer wrote it, for a rewrite. */
+function contentOf(unit: ToeicUnit, d: Draft[ToeicUnit], loc: Loc): unknown {
+  switch (loc.kind) {
+    case "photo":
+      return (d as P12).photos[loc.i];
+    case "qr":
+      return (d as P12).qr[loc.i];
+    case "s5":
+      return (d as P56).part5[loc.i];
+    case "host":
+      return hostsOf(unit, d)[loc.i];
+    case "q":
+      return hostsOf(unit, d)[loc.i].questions[loc.j];
+  }
+}
+
+/** Puts a unit the writer returned into its place; false when there is nothing to read. A Part 6 blank keeps its
+ *  "(n)" prompt, which ties it to its place in the text. */
+function put(unit: ToeicUnit, d: Draft[ToeicUnit], loc: Loc, raw: unknown): boolean {
+  if (!raw || typeof raw !== "object") return false;
+  switch (loc.kind) {
+    case "photo":
+      (d as P12).photos[loc.i] = PARSE.p12({ photos: [raw] }).photos[0];
+      break;
+    case "qr":
+      (d as P12).qr[loc.i] = PARSE.p12({ qr: [raw] }).qr[0];
+      break;
+    case "s5":
+      (d as P56).part5[loc.i] = mcq(raw);
+      break;
+    case "q": {
+      const h = hostsOf(unit, d)[loc.i];
+      const q = mcq(raw);
+      if (unit === "p56") q.prompt = h.questions[loc.j].prompt;
+      h.questions[loc.j] = q;
+      break;
+    }
+    case "host": {
+      const hosts = hostsOf(unit, d);
+      hosts[loc.i] =
+        unit === "p3" ? PARSE.p3({ sets: [raw] }).sets[0] : unit === "p4" ? PARSE.p4({ sets: [raw] }).sets[0] : unit === "p56" ? PARSE.p56({ part6: [raw] }).part6[0] : set7(raw);
+      break;
+    }
+  }
+  return true;
+}
+
+/** The format rules one unit meets on its own, for a replacement written for a dropped one. A new script or text
+ *  also keeps the dropped one's kind (`was`): its graphic, its number of texts. */
+function unitProblems(unit: ToeicUnit, d: Draft[ToeicUnit], loc: Loc, id: string, was: unknown): string[] {
+  switch (loc.kind) {
+    case "photo":
+      return photoProblems(id, (d as P12).photos[loc.i]);
+    case "qr":
+      return qrProblems(id, (d as P12).qr[loc.i]);
+    case "s5": {
+      const q = (d as P56).part5[loc.i];
+      return [...mcqProblems(id, [q], 1), ...blankMissing(id, q)];
+    }
+    case "q":
+      return mcqProblems(id, [hostsOf(unit, d)[loc.i].questions[loc.j]], 1);
+    case "host": {
+      const h = hostsOf(unit, d)[loc.i];
+      const before = was as Host;
+      if (unit === "p3" || unit === "p4") {
+        const s = h as Conversation | Talk;
+        const kind = !!s.graphic === !!(before as Conversation | Talk).graphic ? [] : [`${id}: ${s.graphic ? "a graphic it must not have" : "its graphic is missing"}`];
+        return [...kind, ...(unit === "p3" ? conversationProblems(id, h as Conversation) : talkProblems(id, h as Talk))];
+      }
+      if (unit === "p56") return part6Problems(id, h as Part6Text);
+      if (unit === "p7s") return singleProblems(id, h as Set7, singles[loc.i] ?? (before as Set7).questions.length);
+      const texts = (h as Set7).texts.length === (before as Set7).texts.length ? [] : [`${id}: ${(h as Set7).texts.length} texts (need ${(before as Set7).texts.length})`];
+      return [...texts, ...mcqProblems(id, h.questions, B[7].perMulti)];
+    }
+  }
+}
+
+const optionLines = (q: RawMcq) => q.options.map((o, i) => `${LETTERS[i]}. ${o}`).join("\n");
+
+/** A question shown under its script or text, which is listed just above it. */
+const questionOnly = (k: Keyed) => {
+  const q = asMcq(k);
+  return `Q: ${k.kind === "blank" ? `Blank ${q.prompt}` : q.prompt}\n${optionLines(q)}`;
+};
+
+/** Everything a test taker sees, for the proofreader: a script or text once, then each question on it (with the
+ *  script or text only when that is not listed just above it). */
+function showUnit(unit: ToeicUnit, d: Draft[ToeicUnit], id: string, withText: boolean): string {
+  const loc = locate(unit, d, id)!;
+  if (loc.kind === "host") {
+    const h = hostsOf(unit, d)[loc.i];
+    const genre = "genre" in h && h.genre ? ` (${h.genre})` : "";
+    const what =
+      unit === "p3"
+        ? "Conversation"
+        : unit === "p4"
+          ? `Talk${genre}`
+          : unit === "p56"
+            ? `Part 6 text${genre}`
+            : (h as Set7).texts.length > 1
+              ? `Part 7 set of ${(h as Set7).texts.length} related texts`
+              : "Part 7 passage";
+    return `${what} "${h.title}":\n${hostContext(unit, h)}`;
+  }
+  const k = slots(unit, d).find((s) => s.id === id)!;
+  return loc.kind === "q" && !withText ? questionOnly(k) : view(k);
+}
+
+/** Every unit id of a writer unit in test order, each script or text followed by its questions. */
+function unitIds(unit: ToeicUnit, d: Draft[ToeicUnit]): string[] {
+  if (unit === "p12") return [...(d as P12).photos.map((_, i) => `P${i + 1}`), ...(d as P12).qr.map((_, i) => `Q${i + 1}`)];
+  const letter = HOST_LETTER[unit]!;
+  return [
+    ...(unit === "p56" ? (d as P56).part5.map((_, i) => `S${i + 1}`) : []),
+    ...hostsOf(unit, d).flatMap((h, i) => [`${letter}${i + 1}`, ...h.questions.map((_, j) => `${letter}${i + 1}.${j + 1}`)]),
+  ];
+}
+
+/** The proofreader's list: the whole unit, or only the given units (a script or text with all its questions). */
+function proofList(unit: ToeicUnit, d: Draft[ToeicUnit], only?: string[]): { id: string; show: string }[] {
+  const ids = unitIds(unit, d).filter((id) => !only || only.includes(id) || only.includes(hostId(id) ?? ""));
+  return ids.map((id) => ({ id, show: showUnit(unit, d, id, !ids.includes(hostId(id) ?? "")) }));
+}
+
+/** Groups faults by the unit to rewrite. A fault in a script or text and one in a question on it make the script or
+ *  text (with its questions) one unit. With `within` (a proofreading of rewritten or replacement units only), a fault
+ *  is tied to the shown unit it belongs to. Faults tied to no unit come back as `loose`. */
+function faultsByUnit(unit: ToeicUnit, d: Draft[ToeicUnit], faults: { id: string; fault: string }[], within?: string[]) {
+  const byUnit = new Map<string, string[]>();
+  const loose: string[] = [];
+  for (const { id, fault } of faults) {
+    const h = hostId(id);
+    const at = locate(unit, d, id) ? id : h && locate(unit, d, h) ? h : null;
+    let targets = at ? [at] : [];
+    if (at && within && !within.includes(at)) {
+      const parent = hostId(at);
+      targets = parent && within.includes(parent) ? [parent] : within.filter((w) => hostId(w) === at);
+    }
+    for (const t of targets) byUnit.set(t, [...(byUnit.get(t) ?? []), fault]);
+    if (!targets.length) loose.push(id ? `${id}: ${fault}` : fault);
+  }
+  for (const [id, f] of [...byUnit]) {
+    const h = hostId(id);
+    if (h && byUnit.has(h)) {
+      byUnit.set(h, [...byUnit.get(h)!, ...f.map((x) => `${id}: ${x}`)]);
+      byUnit.delete(id);
+    }
+  }
+  return { byUnit, loose };
+}
+
+/** The unit's name in the writer's words. */
+const unitName = (unit: ToeicUnit) => UNIT_LABEL[unit].replace(/단일 지문/, "single passages").replace(/복수 지문/, "multiple passages");
+
+const SCOPE_RULE =
+  'A script or text id (C1, T1, X1, R1) is rewritten whole with its questions and keeps its kind (its graphic if it has one, its number of texts, the blanks ---(1)--- to ---(4)--- of a Part 6 text); a question id (C1.2) is that question alone and its script or text stays as it is; a Part 6 blank (X1.2) keeps its "(n)" prompt and takes new options. A photograph (P1), a Part 2 item (Q1) and a Part 5 sentence (S1) are one item each.';
+
+/** The writer's second look: only the faulted units, each with its faults, in a new conversation. */
+function rewritePrompt(unit: ToeicUnit, o: ToeicGenOptions, d: Draft[ToeicUnit], byUnit: Map<string, string[]>): string {
+  return [
+    `A proofreader found faults in some items of ${unitName(unit)} of a TOEIC Listening and Reading practice test you wrote. Rewrite only the items below so that every fault listed is fixed and each still follows the rules; leave what is not faulty as it is.`,
+    SCOPE_RULE,
+    "",
+    "# What to write",
+    ...RULES[unit].map((r) => `- ${r}`),
+    "",
+    "# Difficulty",
+    TARGET_TEXT[o.target],
+    "",
+    guidelinesForPrompt(),
+    "",
+    ...[...byUnit].map(([id, faults]) => {
+      const loc = locate(unit, d, id)!;
+      return [
+        `### ${id}`,
+        loc.kind === "q" ? `The script or text it is on (do not change):\n${hostContext(unit, hostsOf(unit, d)[loc.i])}` : "",
+        `Current version: ${JSON.stringify(contentOf(unit, d, loc))}`,
+        "Faults:",
+        ...faults.map((f) => `- ${f}`),
+      ]
+        .filter(Boolean)
+        .join("\n");
+    }),
+    "",
+    "# Reply format",
+    '{"items": [{"id": string, ...the same fields as the item\'s current version}]}',
+  ].join("\n");
 }
 
 export const SOLVER_SYSTEM =
@@ -487,11 +716,12 @@ export function fixPrompt(items: Keyed[], solved: Record<string, string>, flagge
   ].join("\n");
 }
 
-export function proofPrompt(items: Keyed[]): string {
+export function proofPrompt(items: { id: string; show: string }[]): string {
   return [
     "List every real fault in these items: a grammar, spelling or usage error in a script, text, question or right answer; facts inside a script or passage that contradict each other, the graphic or the options; or wording that leaves the question unclear. An item without a fault is not listed.",
+    "A script or text has its own id and the questions on it follow with their own ids (C1, then C1.1, C1.2): give a fault in the script or text itself the script's or text's id, and a fault in one question that question's id.",
     "",
-    ...items.map((i) => `### ${i.id}\n${view(i)}`),
+    ...items.map((i) => `### ${i.id}\n${i.show}`),
     "",
     'Reply format: {"faults": [{"id": string, "fault": string}]}',
   ].join("\n");
@@ -560,8 +790,28 @@ async function check(run: Run, checker: AiSettings, items: Keyed[], step: (s: To
   return { verdicts, flagged, agreed };
 }
 
-/** The checker reads every script and text for language faults and internal contradictions; faults send the unit
- *  back to the writer once, and the rewrite stands if it meets the format at least as well. */
+async function proofread(run: Run, checker: AiSettings, list: { id: string; show: string }[]): Promise<{ id: string; fault: string }[]> {
+  if (!list.length) return [];
+  return arr(obj(extractJson(await run.ask(checker, PROOF_SYSTEM, proofPrompt(list)))).faults)
+    .map((f) => ({ id: normId(obj(f).id), fault: str(obj(f).fault) }))
+    .filter((f) => f.fault);
+}
+
+interface Proofed {
+  draft: Draft[ToeicUnit];
+  notes: string[];
+  proofed: number;
+  reproofed: number;
+  /** Units still faulted after their rewrite: dropped, for refill to write again. */
+  drop: string[];
+  /** The faults behind each dropped unit, for the refill writer. */
+  faults: Map<string, string[]>;
+}
+
+/** The checker reads every script, text and item for language faults and internal contradictions. Only the faulted
+ *  units go back to the writer (a new conversation), each with its faults, and each rewrite goes back into its own
+ *  place when the unit measures no worse with it; the rest keeps the proofread text. The rewrites are proofread once
+ *  more on their own. Every TOEIC item has a key, so a unit still faulted (or not rewritten) is dropped for refill. */
 async function proofUnit<U extends ToeicUnit>(
   run: Run,
   writer: AiSettings,
@@ -570,28 +820,61 @@ async function proofUnit<U extends ToeicUnit>(
   o: ToeicGenOptions,
   w: { draft: Draft[U]; notes: string[] },
   step: (s: ToeicStep) => void,
-) {
+): Promise<Proofed> {
   step("proof");
-  const faults = arr(obj(extractJson(await run.ask(checker, PROOF_SYSTEM, proofPrompt(slots(unit, w.draft))))).faults)
-    .map((f) => ({ id: str(obj(f).id), fault: str(obj(f).fault) }))
-    .filter((f) => f.fault);
-  if (!faults.length) return { ...w, proofed: 0 };
-  try {
-    const parse = PARSE[unit] as (r: unknown) => Draft[U];
-    const measure = MEASURE[unit] as (d: Draft[U]) => string[];
-    const again = parse(extractJson(await run.ask(writer, WRITER_SYSTEM, writerPrompt(unit, o, faults.map((f) => `${writerLabel(unit, f.id)}: ${f.fault}`)))));
-    const notes = measure(again);
-    if (notes.length <= w.notes.length) return { draft: again, notes, proofed: faults.length };
-  } catch {
-    run.stop();
-    /* the draft stands; the blind solve still guards the keys */
+  const measure = MEASURE[unit] as (d: Draft[ToeicUnit]) => string[];
+  let draft = w.draft as Draft[ToeicUnit];
+  const shown = proofList(unit, draft);
+  const first = await proofread(run, checker, shown);
+  const tied = faultsByUnit(unit, draft, first);
+  // The first proofreading saw the whole unit, so a fault it tied to no item counts against every item shown (a
+  // script or text with its questions as one): each is rewritten and proofread again.
+  const byUnit = tied.loose.length
+    ? faultsByUnit(unit, draft, [...first, ...shown.filter((u) => !hostId(u.id)).flatMap((u) => tied.loose.map((fault) => ({ id: u.id, fault })))]).byUnit
+    : tied.byUnit;
+  const drop: string[] = [];
+  const faults = new Map<string, string[]>();
+  let reproofed = 0;
+
+  if (byUnit.size) {
+    step("reproof");
+    const rewritten: string[] = [];
+    let problems = measure(draft).length;
+    try {
+      const reply = arr(obj(extractJson(await run.ask(writer, WRITER_SYSTEM, rewritePrompt(unit, o, draft, byUnit)))).items);
+      for (const id of byUnit.keys()) {
+        const trial = structuredClone(draft);
+        if (!put(unit, trial, locate(unit, trial, id)!, reply.find((x) => normId(obj(x).id) === id))) continue;
+        const n = measure(trial).length;
+        if (n > problems) continue;
+        rewritten.push(id);
+        draft = trial;
+        problems = n;
+      }
+    } catch {
+      run.stop();
+      /* no usable rewrite: every faulted unit counts as still faulted below */
+    }
+    const second = await proofread(run, checker, rewritten.length ? proofList(unit, draft, rewritten) : []);
+    reproofed = second.length;
+    const again = faultsByUnit(unit, draft, second, rewritten);
+    // Only rewritten units were shown, so a fault tied to none of them is one of theirs: the only one's, or, with
+    // several, each one counts as faulted.
+    if (again.loose.length) for (const id of rewritten) again.byUnit.set(id, [...(again.byUnit.get(id) ?? []), ...again.loose]);
+    for (const [id, firstFaults] of byUnit) {
+      const still = rewritten.includes(id) ? (again.byUnit.get(id) ?? []) : firstFaults;
+      if (!still.length) continue;
+      drop.push(id);
+      faults.set(id, still);
+    }
   }
-  return { ...w, proofed: faults.length };
+  return { draft, notes: measure(draft), proofed: first.length, reproofed, drop, faults };
 }
 
-/** Blind solve and editor over a whole unit: rekeys apply at once, drops are returned for the refill. */
-async function verify(run: Run, checker: AiSettings, unit: ToeicUnit, draft: Draft[ToeicUnit], step: (s: ToeicStep) => void) {
-  const items = slots(unit, draft);
+/** Blind solve and editor over a unit's items: rekeys apply at once, drops are returned for the refill. Items the
+ *  proofreading dropped (and the questions of a script or text it dropped) are not solved; they go to refill. */
+async function verify(run: Run, checker: AiSettings, unit: ToeicUnit, draft: Draft[ToeicUnit], proofDrop: string[], step: (s: ToeicStep) => void) {
+  const items = slots(unit, draft).filter((i) => !proofDrop.includes(i.id) && !proofDrop.includes(hostId(i.id) ?? ""));
   const { verdicts, flagged, agreed } = await check(run, checker, items, step);
   let rekeyed = 0;
   edit(unit, draft, (id, item) => {
@@ -604,17 +887,43 @@ async function verify(run: Run, checker: AiSettings, unit: ToeicUnit, draft: Dra
   return { total: items.length, agreed, flagged, rekeyed, dropped };
 }
 
-const REFILL_SHAPE: Record<Kind, string> = {
+const ITEM_SHAPE = {
   photo: `{"id": string, "scene": string, "statements": [string, string, string, string], "answer": "A"|"B"|"C"|"D"}`,
   qr: `{"id": string, "question": string, "responses": [string, string, string], "answer": "A"|"B"|"C"}`,
   mcq: `{"id": string, ${MCQ.slice(1)}`,
-  blank: `{"id": string, ${MCQ.slice(1)}`,
+};
+/** A whole script or text with its questions, in the unit's own shape (SHAPE) with an id. */
+const HOST_SHAPE: Partial<Record<ToeicUnit, string>> = {
+  p3: `{"id": string, "title": string, "speakers": {"A": {"role": string, "gender": "female"|"male"}, "B": {...}}, "turns": [{"speaker": "A", "text": string}], "graphic": string, "questions": [${MCQ}]}`,
+  p4: `{"id": string, "title": string, "genre": string, "speaker": {"role": string, "gender": "female"|"male"}, "text": string, "graphic": string, "questions": [${MCQ}]}`,
+  p56: `{"id": string, "title": string, "genre": string, "text": string, "questions": [${MCQ}]}`,
+  p7s: `{"id": string, "title": string, "texts": [{"genre": string, "text": string}], "questions": [${MCQ}]}`,
+  p7m: `{"id": string, "title": string, "texts": [{"genre": string, "text": string}], "questions": [${MCQ}]}`,
+};
+const HOST_NAME: Partial<Record<ToeicUnit, string>> = {
+  p3: "conversation with its questions",
+  p4: "talk with its questions",
+  p56: "Part 6 text with its four blanks ---(1)--- to ---(4)--- and their questions",
+  p7s: "single passage with its questions",
+  p7m: "set of related texts with its questions",
 };
 
-export function refillPrompt(unit: ToeicUnit, items: Keyed[], o: ToeicGenOptions): string {
+const shapeOf = (unit: ToeicUnit, loc: Loc) =>
+  loc.kind === "host" ? HOST_SHAPE[unit]! : loc.kind === "photo" ? ITEM_SHAPE.photo : loc.kind === "qr" ? ITEM_SHAPE.qr : ITEM_SHAPE.mcq;
+
+/** What a new script or text must keep of the dropped one. */
+function kindNote(unit: ToeicUnit, h: Host, i: number): string {
+  if (unit === "p3" || unit === "p4") return (h as Conversation | Talk).graphic ? ', with a "graphic" and one "Look at the graphic." question' : ', with "graphic": ""';
+  if (unit === "p7s") return `, one text with ${singles[i] ?? h.questions.length} questions`;
+  if (unit === "p7m") return `, ${(h as Set7).texts.length} related texts with ${B[7].perMulti} questions`;
+  return "";
+}
+
+export function refillPrompt(unit: ToeicUnit, d: Draft[ToeicUnit], ids: string[], faults: Map<string, string[]>, o: ToeicGenOptions): string {
   const parts = [
-    "The items below were dropped from a TOEIC practice test for having no single defensible answer. Write one stronger replacement for each id.",
+    "Each item below was dropped from a TOEIC practice test: it had no single defensible answer, or the proofreader still found a fault after it was rewritten. Write one stronger replacement for each id.",
     "- A Part 1 photograph: a new scene and four statements. A Part 2 item: a new question and three responses.",
+    "- A script or text id (C1, T1, X1, R1): a whole new one for the same place, on another topic, of the same kind, with all its questions.",
     "- Any other item: keep its script, passage or text exactly as shown and write a new question on it with new options. For a Part 6 blank, keep the blank's place and its \"(n)\" prompt and write options that fit it.",
     "- The key must be the only defensible answer.",
     "",
@@ -627,13 +936,25 @@ export function refillPrompt(unit: ToeicUnit, items: Keyed[], o: ToeicGenOptions
     guidelinesForPrompt(),
   ];
   if (o.trend?.length) parts.push(...o.trend);
-  parts.push("", "# Dropped items", ...items.map((i) => `### ${i.id}\n${view(i)}\nDropped key: ${i.item.answer}`));
-  const kinds = [...new Set(items.map((i) => i.kind))];
-  parts.push("", "# Reply format", `{"items": [${kinds.map((k) => REFILL_SHAPE[k]).join(" | ")}]}`);
+  const blocks = ids.map((id) => {
+    const loc = locate(unit, d, id)!;
+    const why = faults.get(id)?.length ? `Faults the proofreader found in it:\n${faults.get(id)!.map((f) => `- ${f}`).join("\n")}` : "";
+    if (loc.kind === "host") {
+      const h = hostsOf(unit, d)[loc.i];
+      return [`### ${id}`, `Write a new ${HOST_NAME[unit]} for this place, on another topic${kindNote(unit, h, loc.i)}.`, `Dropped version: "${h.title}"`, why].filter(Boolean).join("\n");
+    }
+    const k = slots(unit, d).find((s) => s.id === id)!;
+    return [`### ${id}\n${view(k)}\nDropped key: ${k.item.answer}`, why].filter(Boolean).join("\n");
+  });
+  parts.push("", "# Dropped items", ...blocks);
+  const shapes = [...new Set(ids.map((id) => shapeOf(unit, locate(unit, d, id)!)))];
+  parts.push("", "# Reply format", `{"items": [${shapes.join(" | ")}]}`);
   return parts.join("\n");
 }
 
-/** Dropped items are written once more and checked again; what fails twice stays out of the test. */
+/** Writes each dropped unit once more: a photograph, a Part 2 item, a Part 5 sentence or a question against the same
+ *  script or text, or a whole script or text for the same place. Each replacement is proofread once and its items
+ *  solved blind like the rest; a replacement that fails either stays out. */
 async function refill(
   run: Run,
   writer: AiSettings,
@@ -641,51 +962,78 @@ async function refill(
   unit: ToeicUnit,
   o: ToeicGenOptions,
   draft: Draft[ToeicUnit],
-  dropped: string[],
+  drop: string[],
+  faults: Map<string, string[]>,
   step: (s: ToeicStep) => void,
-): Promise<{ replaced: Map<string, Slot>; refilled: string[] }> {
-  const replaced = new Map<string, Slot>();
-  const old = slots(unit, draft).filter((i) => dropped.includes(i.id));
-  if (!old.length) return { replaced, refilled: [] };
+): Promise<Map<string, unknown>> {
+  const out = new Map<string, unknown>();
+  const ids = drop.filter((id) => locate(unit, draft, id));
+  if (!ids.length) return out;
   step("refill");
   try {
-    const raw = arr(obj(extractJson(await run.ask(writer, WRITER_SYSTEM, refillPrompt(unit, old, o)))).items);
-    const fresh: Keyed[] = [];
-    for (const r of raw) {
-      const was = old.find((i) => i.id === str(obj(r).id));
-      if (!was || fresh.some((f) => f.id === was.id)) continue;
-      const answer = str(obj(r).answer).toUpperCase().slice(0, 1);
-      let item: Slot;
-      let faults: string[];
-      if (was.kind === "photo") {
-        const p: Photo = { scene: str(obj(r).scene), statements: arr<string>(obj(r).statements).map(str), answer };
-        item = p;
-        faults = [...(p.scene ? [] : ["no scene"]), ...optionCheck(was.id, p.statements, answer)];
-      } else if (was.kind === "qr") {
-        const q: Qr = { question: str(obj(r).question), responses: arr<string>(obj(r).responses).map(str), answer };
-        item = q;
-        faults = [...(q.question ? [] : ["no question"]), ...optionCheck(was.id, q.responses, answer, 3)];
-      } else {
-        const q = mcq(r);
-        // A Part 6 blank keeps its place in the text.
-        if (was.kind === "blank") q.prompt = (was.item as RawMcq).prompt;
-        item = q;
-        faults = [...(q.prompt ? [] : ["empty question"]), ...(was.id.startsWith("S") && !q.prompt.includes("-------") ? ["no blank"] : []), ...optionCheck(was.id, q.options, q.answer)];
-      }
-      if (!faults.length) fresh.push({ ...was, item });
+    const reply = arr(obj(extractJson(await run.ask(writer, WRITER_SYSTEM, refillPrompt(unit, draft, ids, faults, o)))).items);
+    // The replacements go into their places on a copy, so they are proofread and solved like the rest.
+    const trial = structuredClone(draft);
+    const fresh: string[] = [];
+    for (const id of ids) {
+      const loc = locate(unit, trial, id)!;
+      const was = structuredClone(contentOf(unit, trial, loc));
+      if (!put(unit, trial, loc, reply.find((x) => normId(obj(x).id) === id))) continue;
+      if (unitProblems(unit, trial, loc, id, was).length) continue;
+      fresh.push(id);
     }
-    if (!fresh.length) return { replaced, refilled: [] };
-    const { verdicts } = await check(run, checker, fresh, () => {});
-    for (const f of fresh) {
-      const v = verdicts.get(f.id);
-      if (!v || v.action === "drop") continue;
-      replaced.set(f.id, v.action === "rekey" ? { ...f.item, answer: v.answer } : f.item);
+    const proofed = faultsByUnit(unit, trial, await proofread(run, checker, fresh.length ? proofList(unit, trial, fresh) : []), fresh);
+    // Only replacements were shown, so a fault tied to none of them is one of theirs: the only one's, or, with
+    // several, none of them can be trusted.
+    const clean = proofed.loose.length ? [] : fresh.filter((id) => !proofed.byUnit.has(id));
+    const { verdicts } = await check(run, checker, slots(unit, trial).filter((k) => clean.includes(k.id) || clean.includes(hostId(k.id) ?? "")), () => {});
+    const judged = <T extends Slot>(id: string, item: T): T | null => {
+      const v = verdicts.get(id);
+      return !v || v.action === "drop" ? null : v.action === "rekey" ? { ...item, answer: v.answer } : item;
+    };
+    for (const id of clean) {
+      const loc = locate(unit, trial, id)!;
+      if (loc.kind !== "host") {
+        const item = judged(id, contentOf(unit, trial, loc) as Slot);
+        if (item) out.set(id, item);
+        continue;
+      }
+      const host = hostsOf(unit, trial)[loc.i];
+      const questions = host.questions.map((q, j) => judged(`${id}.${j + 1}`, q));
+      // A Part 6 text cannot leave a blank out; a new conversation, talk or set keeps the questions that stood.
+      if (unit === "p56" ? questions.some((q) => q === null) : questions.every((q) => q === null)) continue;
+      out.set(id, { ...host, questions: questions.filter((q): q is RawMcq => q !== null) });
     }
   } catch {
     run.stop();
-    /* the drops stand */
+    /* the units stay dropped */
   }
-  return { replaced, refilled: [...replaced.keys()] };
+  return out;
+}
+
+/** Applies the verdicts: replacements for refilled units, removal for what stays dropped. A new script or text takes
+ *  its place first and a dropped one is set aside, so the item ids (positions) still hold while the items are
+ *  settled. Returns the ids left out (a Part 6 text with a dropped blank leaves with all its blanks). */
+function settle(unit: ToeicUnit, d: Draft[ToeicUnit], drop: string[], replacements: Map<string, unknown>): string[] {
+  const hosts = hostsOf(unit, d);
+  const gone = new Set<Host>();
+  const goneIds: string[] = [];
+  for (const id of drop) {
+    const loc = locate(unit, d, id);
+    if (loc?.kind !== "host") continue;
+    const r = replacements.get(id) as Host | undefined;
+    if (r) hosts[loc.i] = r;
+    else {
+      gone.add(hosts[loc.i]);
+      goneIds.push(id);
+    }
+  }
+  const removed = edit(unit, d, (id, item) => (drop.includes(id) ? ((replacements.get(id) as Slot | undefined) ?? null) : item));
+  if (gone.size) {
+    if (unit === "p56") (d as P56).part6 = (d as P56).part6.filter((t) => !gone.has(t));
+    else (d as P3 | P4 | P7).sets = ((d as P3 | P4 | P7).sets as Host[]).filter((s) => !gone.has(s)) as never;
+  }
+  return [...removed, ...goneIds];
 }
 
 /* ---------- Build tests ---------- */
@@ -884,10 +1232,12 @@ export async function generateToeic(
   for (const unit of ORDER.filter((u) => o.units.includes(u))) {
     const step = (s: ToeicStep) => onProgress(unit, s);
     const written = await writeUnit(run, settings, unit, o, step);
-    const { draft, notes, proofed } = await proofUnit(run, settings, settings, unit, o, written, step);
-    const checked = await verify(run, settings, unit, draft, step);
-    const { replaced, refilled } = await refill(run, settings, settings, unit, o, draft, checked.dropped, step);
-    const dropped = edit(unit, draft, (id, item) => replaced.get(id) ?? (checked.dropped.includes(id) ? null : item));
+    const proofed = await proofUnit(run, settings, settings, unit, o, written, step);
+    const { draft } = proofed;
+    const checked = await verify(run, settings, unit, draft, proofed.drop, step);
+    const drop = [...proofed.drop, ...checked.dropped];
+    const replaced = await refill(run, settings, settings, unit, o, draft, drop, proofed.faults, step);
+    const dropped = settle(unit, draft, drop, replaced);
     (drafts as Record<ToeicUnit, unknown>)[unit] = draft;
     reports.push({
       unit,
@@ -895,11 +1245,12 @@ export async function generateToeic(
       total: checked.total,
       agreed: checked.agreed,
       flagged: checked.flagged,
-      proofed,
+      proofed: proofed.proofed,
+      reproofed: proofed.reproofed,
       rekeyed: checked.rekeyed,
-      refilled,
+      refilled: drop.filter((id) => replaced.has(id)),
       dropped,
-      notes,
+      notes: proofed.notes,
     });
     step("done");
   }
