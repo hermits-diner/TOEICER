@@ -4,8 +4,11 @@ import { getSetting, setSetting } from "./appSettings";
 import { getDb } from "./db";
 import { BRAND } from "./brand";
 
-/** Highest migration this build knows (src-tauri/src/lib.rs). A backup from a newer build cannot be opened here. */
-const MAX_MIGRATION = 1;
+/**
+ * Highest migration this build knows (src-tauri/src/lib.rs). A backup from a newer build cannot be opened here; an
+ * older one can, and the SQL plugin brings it up to date when the app restarts into it.
+ */
+export const MAX_MIGRATION = 2;
 
 export interface BackupInfo {
   name: string;

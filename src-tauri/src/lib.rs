@@ -19,13 +19,22 @@ const SET_EXTS: [&str; 2] = ["toic", "toeicset"];
 fn migrations() -> Vec<Migration> {
     // sqlx refuses a database whose recorded checksum differs from these exact bytes, and a git checkout on
     // Windows turns LF into CRLF: pin CRLF (what installed databases recorded) so the checkout can't decide.
-    let schema = include_str!("../migrations/001_schema.sql").replace("\r\n", "\n").replace('\n', "\r\n");
-    vec![Migration {
-        version: 1,
-        description: "schema",
-        sql: Box::leak(schema.into_boxed_str()),
-        kind: MigrationKind::Up,
-    }]
+    // A migration that has shipped is never edited; a schema change is a new file with the next version.
+    let crlf = |sql: &str| -> &'static str { Box::leak(sql.replace("\r\n", "\n").replace('\n', "\r\n").into_boxed_str()) };
+    vec![
+        Migration {
+            version: 1,
+            description: "schema",
+            sql: crlf(include_str!("../migrations/001_schema.sql")),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 2,
+            description: "practice_draft",
+            sql: crlf(include_str!("../migrations/002_practice_draft.sql")),
+            kind: MigrationKind::Up,
+        },
+    ]
 }
 
 /// Set files named on the command line (a double-click in Explorer passes the file's path).
@@ -137,10 +146,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_first_migration_keeps_the_checksum_installed_databases_recorded() {
+    fn migrations_keep_the_checksums_installed_databases_recorded() {
         use sha2::{Digest, Sha384};
-        let sum: String = Sha384::digest(migrations()[0].sql.as_bytes()).iter().map(|b| format!("{b:02x}")).collect();
-        assert_eq!(sum, "6a351c3d9d40fe669e75a0345b16e6dd3ca6d0efb32030c8647bda8f460dcf8bac013be17e96ea8e15d2b52ba4d3ebab");
+        let sums: Vec<(i64, String)> = migrations()
+            .iter()
+            .map(|m| (m.version, Sha384::digest(m.sql.as_bytes()).iter().map(|b| format!("{b:02x}")).collect()))
+            .collect();
+        // Never change these: a database that recorded another checksum refuses to open. Add a migration instead.
+        let pinned = [
+            (1, "6a351c3d9d40fe669e75a0345b16e6dd3ca6d0efb32030c8647bda8f460dcf8bac013be17e96ea8e15d2b52ba4d3ebab"),
+            (2, "3941775c3aa9434b5db96783ad79b98b65c69dbfa6267edcc183e432594d3d7d0e2aa920bf2a9ca87161b58805850499"),
+        ];
+        assert_eq!(sums, pinned.map(|(v, s)| (v, s.to_string())).to_vec());
     }
 
     #[test]

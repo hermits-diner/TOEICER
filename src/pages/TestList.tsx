@@ -2,6 +2,8 @@ import { BookOpen, ChevronRight, FolderOpen, Headphones, PencilLine, Search, Sha
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState, type KeyboardEvent } from "react";
 import Dropdown from "../components/Dropdown";
 import { formatScore } from "../lib/brand";
+import { draftBadge, RESUME_LABEL, savedAgo } from "../lib/draft";
+import { draftWritesIdle } from "../lib/draftQueue";
 import { STUDIO } from "../lib/edition";
 import { EMPTY_FILTER, filterChoices, filterTests, genMetaLine, isFiltering, KIND_LABEL, ORIGIN_LABEL, type LibraryFilter } from "../lib/library";
 import { exportTest, testToImport } from "../lib/package";
@@ -46,7 +48,10 @@ export default function TestList({ title, onOpen, onImport, origin }: Props) {
   const clear = () => setFilter({ ...EMPTY_FILTER, origin: origin ?? "all" });
 
   const refresh = useCallback(() => {
-    listTests().then((rows) => setTests(origin ? filterTests(rows, { ...EMPTY_FILTER, origin }) : rows), (e) => setError(String(e)));
+    // A practice screen that just closed may still be writing its draft; read the list after that.
+    draftWritesIdle()
+      .then(() => listTests())
+      .then((rows) => setTests(origin ? filterTests(rows, { ...EMPTY_FILTER, origin }) : rows), (e) => setError(String(e)));
   }, [origin]);
   useEffect(refresh, [refresh]);
 
@@ -193,6 +198,11 @@ export default function TestList({ title, onOpen, onImport, origin }: Props) {
                 <div className="row-title">
                   <span className={`ai-badge origin-${t.origin}`}>{ORIGIN_LABEL[t.origin]}</span>
                   {t.title}
+                  {t.draft && (
+                    <span className="draft-badge" title={`${savedAgo(t.draft.updatedAt)} 임시저장`}>
+                      {draftBadge(t.draft)}
+                    </span>
+                  )}
                 </div>
                 <div className="row-meta">
                   {meta(t)}
@@ -214,6 +224,7 @@ export default function TestList({ title, onOpen, onImport, origin }: Props) {
                   {confirmId === t.id ? "삭제 확인" : <Trash2 size={14} />}
                 </button>
               </div>
+              {t.draft && <span className="row-resume">{RESUME_LABEL}</span>}
               <ChevronRight size={16} className="row-open" />
             </div>
           ))}

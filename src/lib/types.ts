@@ -113,6 +113,15 @@ export interface TestSummary {
   origin: Origin;
   /** How an AI-written set was asked for; null for other sets. */
   gen: GenMeta | null;
+  /** An attempt left before submitting (practice_draft), or null. */
+  draft: DraftSummary | null;
+}
+
+/** What the list shows of an unfinished attempt: questions answered and when it was last saved (UTC, as SQLite's
+ *  datetime('now') writes it). */
+export interface DraftSummary {
+  answered: number;
+  updatedAt: string;
 }
 
 /** The request behind an AI-written set, kept so the library can be filtered and searched by it. */

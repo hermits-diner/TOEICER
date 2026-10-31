@@ -14,6 +14,7 @@ const t = (id: number, over: Partial<TestSummary>): TestSummary => ({
   lastBand: null,
   origin: "mine",
   gen: null,
+  draft: null,
   ...over,
 });
 const rows: TestSummary[] = [

@@ -1,4 +1,4 @@
-import { ChevronLeft, Flag, GraduationCap, Printer, RotateCcw, Timer } from "lucide-react";
+import { ChevronLeft, Flag, GraduationCap, Printer, RotateCcw, Save, Timer } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import AudioPlayer from "../components/AudioPlayer";
@@ -6,9 +6,11 @@ import SpeakButton from "../components/SpeakButton";
 import HighlightToolbar from "../components/HighlightToolbar";
 import ToeicPrintSheet, { type PrintMode } from "../components/ToeicPrintSheet";
 import QuestionGroupView from "../components/QuestionGroupView";
+import { useDraftSaver } from "../components/useDraftSaver";
 import { bandFor, formatBand, type BandResult } from "../lib/bandTable";
 import { BRAND } from "../lib/brand";
-import { loadTest, saveAttempt, setQuestionReported, updateAttemptScore } from "../lib/repo";
+import { answeredIn, clockOf, DraftUnreadable, restoreDraft, savedAgo } from "../lib/draft";
+import { loadDraft, loadTest, saveAttempt, setQuestionReported, updateAttemptScore, type Draft, type DraftInput } from "../lib/repo";
 import { scoreTest, type ScoreResult } from "../lib/scoring";
 import { passageTab } from "../lib/taskLabels";
 import type { TestDetail } from "../lib/types";
@@ -47,20 +49,51 @@ export default function ReadingPractice({ testId, onExit }: { testId: number; on
   /** Questions reported as flawed (AI-written sets); left out of scoring. */
   const [reported, setReported] = useState<Set<number>>(new Set());
   const attemptId = useRef<Promise<number> | null>(null);
-  /** Passage HTML with the user's highlights, per passage, kept while the attempt lasts. */
+  /** Passage HTML with the user's highlights, per passage, kept while the attempt lasts (and in its draft). */
   const [marked, setMarked] = useState<Record<number, string>>({});
   /** Exam conditions: no dictionary, like the real test. */
   const [examMode, setExamMode] = useState(false);
   const [confirmSubmit, setConfirmSubmit] = useState(false);
   const [textEl, setTextEl] = useState<HTMLDivElement | null>(null);
+  /** An attempt left before submitting, offered before the clock starts; the clock runs once `started`. */
+  const [offer, setOffer] = useState<Draft | null>(null);
+  const [started, setStarted] = useState(false);
+  /** Resumed after the time had run out: the clock stays at zero and the set waits to be submitted. */
+  const [overtime, setOvertime] = useState(false);
+  /** A stored draft that could not be read and was removed: said once, the set starts afresh. */
+  const [draftLoadError, setDraftLoadError] = useState<string | null>(null);
+  /** The draft could not be looked up (a database error): the set waits, so nothing overwrites a draft that may be fine. */
+  const [draftBlocked, setDraftBlocked] = useState<string | null>(null);
+  const [draftTry, setDraftTry] = useState(0);
+  /** Something worth keeping was done (or a draft resumed); until then leaving keeps no draft. */
+  const touched = useRef(false);
 
-  const toggleFlag = (id: number) =>
+  const draft = useDraftSaver(
+    testId,
+    (): DraftInput | undefined =>
+      started && !outcome && touched.current
+        ? { answers, flagged: [...flagged], marked: Object.keys(marked).length ? marked : null, passageIdx, elapsedSec: elapsed }
+        : undefined,
+  );
+  const { flush: flushDraft, discard: discardDraft, discardOnceSaved } = draft;
+  const changed = () => {
+    touched.current = true;
+    draft.schedule();
+  };
+  const answer = (id: number, v: string) => {
+    setAnswers((a) => ({ ...a, [id]: v }));
+    changed();
+  };
+
+  const toggleFlag = (id: number) => {
     setFlagged((f) => {
       const next = new Set(f);
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
     });
+    changed();
+  };
 
   /** Shows a question from the navigator: switches passage if needed, then scrolls it into view. */
   const goTo = (passageIndex: number, questionId: number) => {
@@ -90,6 +123,32 @@ export default function ReadingPractice({ testId, onExit }: { testId: number; on
       (e) => setError(String(e)),
     );
   }, [testId]);
+
+  // A draft whose text cannot be read is removed (else the list keeps showing it) and the set starts afresh. A
+  // database error removes nothing: the set waits until the draft can be read, so no new save overwrites it.
+  useEffect(() => {
+    let live = true;
+    loadDraft(testId).then(
+      (d) => {
+        if (!live) return;
+        setDraftBlocked(null);
+        if (d) setOffer(d);
+        else setStarted(true);
+      },
+      (e: unknown) => {
+        if (!live) return;
+        const msg = e instanceof Error ? e.message : String(e);
+        if (e instanceof DraftUnreadable) {
+          setDraftLoadError(`${msg} · 처음부터 시작합니다 (읽지 못한 임시저장은 지웠습니다).`);
+          void discardDraft();
+          setStarted(true);
+        } else setDraftBlocked(msg);
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, [testId, draftTry, discardDraft]);
 
   // Reading runs against the clock; a Listening set lasts as long as its recordings, so it only counts up.
   const listening = test?.kind === "listening";
@@ -122,13 +181,17 @@ export default function ReadingPractice({ testId, onExit }: { testId: number; on
     if (!test || outcome) return;
     const o = grade(reported, elapsed);
     if (!o) return;
+    // The draft gets the latest answers first, so it still holds them if the attempt cannot be saved.
+    void flushDraft();
     setOutcome(o);
     setConfirmSubmit(false);
+    setOvertime(false);
     // Every answer is kept, reported or not, so withdrawing a report later restores it in the statistics.
     const saving = saveAttempt(test.id, elapsed, o.score.correct, o.band.band, scoreTest(flatQuestions, answers).results);
     attemptId.current = saving;
     saving.catch((e) => setSaveError(`기록 저장 실패: ${String(e)}`));
-  }, [test, outcome, grade, reported, elapsed, flatQuestions, answers]);
+    void discardOnceSaved(saving);
+  }, [test, outcome, grade, reported, elapsed, flatQuestions, answers, flushDraft, discardOnceSaved]);
 
   /** Reports a flawed question or withdraws the report; after submission the attempt is rescored. */
   const toggleReport = (id: number) => {
@@ -151,14 +214,46 @@ export default function ReadingPractice({ testId, onExit }: { testId: number; on
   submitRef.current = submit;
 
   useEffect(() => {
-    if (!test || outcome) return;
+    if (!test || outcome || !started || overtime) return;
     const t = setInterval(() => setElapsed((e) => e + 1), 1000);
     return () => clearInterval(t);
-  }, [test, outcome]);
+  }, [test, outcome, started, overtime]);
 
   useEffect(() => {
-    if (test && !outcome && elapsed >= limit) submitRef.current();
-  }, [elapsed, limit, test, outcome]);
+    if (test && started && !outcome && !overtime && elapsed >= limit) submitRef.current();
+  }, [elapsed, limit, test, outcome, started, overtime]);
+
+  // Moving to another passage is kept straight away (it is also where the set reopens).
+  useEffect(() => {
+    void flushDraft();
+  }, [passageIdx, flushDraft]);
+
+  const resume = () => {
+    if (!test || !offer) return;
+    const r = restoreDraft(test, offer);
+    setAnswers(r.answers);
+    setFlagged(new Set(r.flagged));
+    setMarked(r.marked);
+    setPassageIdx(r.passageIdx);
+    setElapsed(r.elapsedSec);
+    const late = r.elapsedSec >= limit;
+    setOvertime(late);
+    setConfirmSubmit(late);
+    touched.current = true;
+    setOffer(null);
+    setStarted(true);
+  };
+
+  const startOver = () => {
+    setOffer(null);
+    setStarted(true);
+    void discardDraft();
+  };
+
+  const saveNow = () => {
+    touched.current = true;
+    void draft.saveNow();
+  };
 
   const restart = () => {
     setAnswers({});
@@ -168,11 +263,56 @@ export default function ReadingPractice({ testId, onExit }: { testId: number; on
     setPassageIdx(0);
     setFlagged(new Set());
     setMarked({});
+    setOvertime(false);
     attemptId.current = null;
+    touched.current = false;
   };
 
   if (error) return <div className="content"><p className="error">{error}</p></div>;
-  if (!test) return <div className="content"><p className="sub">불러오는 중…</p></div>;
+  if (!test || (!started && !offer && !draftBlocked)) return <div className="content"><p className="sub">불러오는 중…</p></div>;
+
+  if (draftBlocked) {
+    return (
+      <div className="content">
+        <button className="btn ghost" onClick={onExit}>
+          <ChevronLeft size={16} /> 목록
+        </button>
+        <h1>{test.title}</h1>
+        <p className="error">임시저장을 확인하지 못했습니다: {draftBlocked} · 임시저장은 그대로 두었습니다.</p>
+        <div className="draft-choice">
+          <button className="btn primary" onClick={() => setDraftTry((n) => n + 1)}>
+            다시 불러오기
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (offer) {
+    const kept = restoreDraft(test, offer);
+    return (
+      <div className="content">
+        <button className="btn ghost" onClick={onExit}>
+          <ChevronLeft size={16} /> 목록
+        </button>
+        <h1>{test.title}</h1>
+        <p className="sub">제출하지 않고 나간 풀이가 있습니다.</p>
+        <div className="draft-choice">
+          <button className="btn primary draft-option" onClick={resume}>
+            <span className="draft-option-title">이어 풀기</span>
+            <span className="draft-option-meta">
+              {answeredIn(kept.answers)}/{flatQuestions.length}문항 답함 · {kept.elapsedSec >= limit ? "제한 시간 끝남 · " : ""}
+              {savedAgo(offer.updatedAt)} 저장
+            </span>
+          </button>
+          <button className="btn draft-option" onClick={startOver}>
+            <span className="draft-option-title">처음부터</span>
+            <span className="draft-option-meta">임시저장을 지우고 새로 풉니다</span>
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   const passage = test.passages[passageIdx];
   const remaining = limit - elapsed;
@@ -225,6 +365,11 @@ export default function ReadingPractice({ testId, onExit }: { testId: number; on
         <span className={`timer${!outcome && remaining <= 300 ? " urgent" : ""}`}>
           <Timer size={14} /> {outcome ? fmt(outcome.elapsed) : fmt(listening ? elapsed : remaining)}
         </span>
+        {!outcome && (
+          <button className="btn ghost" title="지금까지 푼 내용을 저장합니다. 목록으로 나갔다가 이어 풀 수 있습니다." onClick={saveNow}>
+            <Save size={14} /> {draft.savedAt ? `임시저장됨 · ${clockOf(draft.savedAt)}` : "임시저장"}
+          </button>
+        )}
         {outcome ? (
           <button className="btn" onClick={restart}>
             <RotateCcw size={14} /> 다시 풀기
@@ -236,12 +381,19 @@ export default function ReadingPractice({ testId, onExit }: { testId: number; on
         )}
       </header>
 
+      {/* A failed delete after submitting shows on the result screen too. */}
+      {(draft.error || (draftLoadError && !outcome)) && <p className="error draft-error">{draft.error ?? draftLoadError}</p>}
+
       {confirmSubmit && !outcome && (
         <div className="submit-confirm">
-          <span>
-            아직 답하지 않은 문항이 {unanswered}개 있습니다. 실제 시험에서는 빈칸도 오답 감점이 없으니 무엇이든 적어 두는 편이
-            유리합니다.
-          </span>
+          {overtime ? (
+            <span>제한 시간이 끝난 풀이입니다. 답을 확인한 뒤 제출해 주십시오.</span>
+          ) : (
+            <span>
+              아직 답하지 않은 문항이 {unanswered}개 있습니다. 실제 시험에서는 빈칸도 오답 감점이 없으니 무엇이든 적어 두는 편이
+              유리합니다.
+            </span>
+          )}
           <button className="btn" onClick={() => setConfirmSubmit(false)}>돌아가기</button>
           <button className="btn primary" onClick={submit}>그대로 제출</button>
         </div>
@@ -298,7 +450,7 @@ export default function ReadingPractice({ testId, onExit }: { testId: number; on
               key={g.id}
               group={g}
               answers={answers}
-              onAnswer={(id, v) => setAnswers((a) => ({ ...a, [id]: v }))}
+              onAnswer={answer}
               results={outcome?.byQuestion}
               flagged={flagged}
               onToggleFlag={toggleFlag}
@@ -309,7 +461,13 @@ export default function ReadingPractice({ testId, onExit }: { testId: number; on
         </div>
       </div>
 
-      <HighlightToolbar container={textEl} onChange={(html) => setMarked((m) => ({ ...m, [passage.id]: html }))} />
+      <HighlightToolbar
+        container={textEl}
+        onChange={(html) => {
+          setMarked((m) => ({ ...m, [passage.id]: html }));
+          changed();
+        }}
+      />
 
       <nav className="qnav" aria-label="문항 이동">
         {test.passages.map((p, pi) => (

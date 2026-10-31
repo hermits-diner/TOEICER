@@ -1,7 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { getDb, sourceId } from "./db";
+import { answeredInJson, DraftUnreadable, type Draft, type DraftInput } from "./draft";
 import { passageToHtml } from "./importFormat";
-import type { GenMeta, ImportTest, Option, Origin, Passage, QuestionGroup, QuestionType, TestDetail, TestKind, TestSummary } from "./types";
+import type { DraftSummary, GenMeta, ImportTest, Option, Origin, Passage, QuestionGroup, QuestionType, TestDetail, TestKind, TestSummary } from "./types";
 
 async function sha256(text: string): Promise<string> {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
@@ -38,7 +39,8 @@ export async function findSavedTest(t: ImportTest): Promise<number | null> {
 
 /**
  * Removes built-in sets that are no longer among `current` (an older version of a sample), as long as nobody has
- * practised them: a set with an attempt or a note on one of its questions stays. Returns how many were removed.
+ * practised them: a set with an attempt, a note on one of its questions or an unfinished attempt stays. Returns how
+ * many were removed.
  */
 export async function removeOutdatedSamples(current: ImportTest[]): Promise<number> {
   const db = await getDb();
@@ -48,7 +50,8 @@ export async function removeOutdatedSamples(current: ImportTest[]): Promise<numb
      WHERE s.adapter = 'sample'
        AND NOT EXISTS (SELECT 1 FROM attempt a WHERE a.test_id = t.id)
        AND NOT EXISTS (SELECT 1 FROM note n JOIN question q ON q.id = n.question_id JOIN question_group g ON g.id = q.group_id
-                       JOIN passage p ON p.id = g.passage_id WHERE p.test_id = t.id)`,
+                       JOIN passage p ON p.id = g.passage_id WHERE p.test_id = t.id)
+       AND NOT EXISTS (SELECT 1 FROM practice_draft d WHERE d.test_id = t.id)`,
   );
   const old = rows.filter((r) => !r.content_hash || !keep.has(r.content_hash));
   for (const r of old) await db.execute("DELETE FROM test WHERE id = $1", [r.id]);
@@ -154,7 +157,12 @@ interface SummaryRow {
   gen_provider: string | null;
   gen_model: string | null;
   gen_options: string | null;
+  draft_answers: string | null;
+  draft_at: string | null;
 }
+
+const draftOf = (r: { draft_answers: string | null; draft_at: string | null }): DraftSummary | null =>
+  r.draft_answers !== null && r.draft_at !== null ? { answered: answeredInJson(r.draft_answers), updatedAt: r.draft_at } : null;
 
 function genOf(r: SummaryRow): GenMeta | null {
   if (r.gen_band === null || r.gen_provider === null) return null;
@@ -179,8 +187,10 @@ export async function listTests(): Promise<TestSummary[]> {
        (SELECT score FROM attempt a WHERE a.test_id = t.id ORDER BY a.id DESC LIMIT 1) AS last_score,
        (SELECT band FROM attempt a WHERE a.test_id = t.id ORDER BY a.id DESC LIMIT 1) AS last_band,
        s.adapter AS origin,
-       g.topic AS gen_topic, g.band AS gen_band, g.provider AS gen_provider, g.model AS gen_model, g.options_json AS gen_options
+       g.topic AS gen_topic, g.band AS gen_band, g.provider AS gen_provider, g.model AS gen_model, g.options_json AS gen_options,
+       dr.answers_json AS draft_answers, dr.updated_at AS draft_at
      FROM test t LEFT JOIN source s ON s.id = t.source_id LEFT JOIN test_gen g ON g.test_id = t.id
+       LEFT JOIN practice_draft dr ON dr.test_id = t.id
      ORDER BY t.id DESC`,
   );
   return rows.map((r) => ({
@@ -194,6 +204,7 @@ export async function listTests(): Promise<TestSummary[]> {
     lastBand: r.last_band,
     origin: r.origin ?? "mine",
     gen: genOf(r),
+    draft: draftOf(r),
   }));
 }
 
@@ -343,6 +354,58 @@ export async function saveAttempt(
     ]);
   }
   return res.lastInsertId ?? 0;
+}
+
+/* ---------- Unfinished attempts ---------- */
+
+export type { Draft, DraftInput };
+
+/** Keeps the attempt in progress (one per set), replacing the one saved before. */
+export async function saveDraft(testId: number, d: DraftInput): Promise<void> {
+  const db = await getDb();
+  await db.execute(
+    `INSERT INTO practice_draft (test_id, answers_json, flagged_json, marked_json, passage_idx, elapsed_sec, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, datetime('now'))
+     ON CONFLICT(test_id) DO UPDATE SET answers_json = excluded.answers_json, flagged_json = excluded.flagged_json,
+       marked_json = excluded.marked_json, passage_idx = excluded.passage_idx, elapsed_sec = excluded.elapsed_sec,
+       updated_at = excluded.updated_at`,
+    [testId, JSON.stringify(d.answers), JSON.stringify(d.flagged), d.marked ? JSON.stringify(d.marked) : null, d.passageIdx, d.elapsedSec],
+  );
+}
+
+/**
+ * The attempt in progress, or null. A stored draft whose text cannot be read throws DraftUnreadable (the screen may
+ * remove it); a database error is passed on as it is, since the draft itself may be fine.
+ */
+export async function loadDraft(testId: number): Promise<Draft | null> {
+  const db = await getDb();
+  const [r] = await db.select<
+    { answers_json: string; flagged_json: string; marked_json: string | null; passage_idx: number; elapsed_sec: number; updated_at: string }[]
+  >("SELECT answers_json, flagged_json, marked_json, passage_idx, elapsed_sec, updated_at FROM practice_draft WHERE test_id = $1", [testId]);
+  if (!r) return null;
+  try {
+    const answers: unknown = JSON.parse(r.answers_json);
+    const flagged: unknown = JSON.parse(r.flagged_json);
+    const marked: unknown = r.marked_json === null ? null : JSON.parse(r.marked_json);
+    if (!answers || typeof answers !== "object" || !Array.isArray(flagged) || (marked !== null && typeof marked !== "object")) {
+      throw new Error("형식이 맞지 않습니다");
+    }
+    return {
+      answers: answers as Draft["answers"],
+      flagged: flagged.filter((id): id is number => typeof id === "number"),
+      marked: marked as Draft["marked"],
+      passageIdx: r.passage_idx,
+      elapsedSec: r.elapsed_sec,
+      updatedAt: r.updated_at,
+    };
+  } catch (e) {
+    throw new DraftUnreadable(`임시저장한 풀이를 읽지 못했습니다 (${e instanceof Error ? e.message : String(e)})`);
+  }
+}
+
+export async function deleteDraft(testId: number): Promise<void> {
+  const db = await getDb();
+  await db.execute("DELETE FROM practice_draft WHERE test_id = $1", [testId]);
 }
 
 /* ---------- Reference material for the writer (Studio) ---------- */
