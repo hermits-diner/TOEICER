@@ -1,10 +1,11 @@
 import { Check, Eye, Pencil, Play, RotateCcw, Search, Trash2, Volume2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { BRAND } from "../lib/brand";
 import { deleteWord, gradeWord, listWords, listWordSets, updateMeaning, type VocabWord, type WordSet } from "../lib/vocab";
 
 function speak(word: string) {
   const u = new SpeechSynthesisUtterance(word);
-  u.lang = "en-GB";
+  u.lang = BRAND.speechLang;
   u.rate = 0.9;
   speechSynthesis.cancel();
   speechSynthesis.speak(u);
@@ -115,7 +116,7 @@ export default function VocabBook({ onOpenTest }: { onOpenTest: (id: number) => 
         </button>
       </div>
       <p className="muted">
-        지문·스크립트·과제에서 단어를 더블클릭해 "단어장에 추가"를 누르면 여기에 모입니다. 복습은 저장한 문장에서 단어를 가린 채
+        {BRAND.copy.wordSource} 단어를 더블클릭해 "단어장에 추가"를 누르면 여기에 모입니다. 복습은 저장한 문장에서 단어를 가린 채
         진행되고, 1·3·7·15·30일 간격으로 다시 나옵니다.
       </p>
 
@@ -131,7 +132,7 @@ export default function VocabBook({ onOpenTest }: { onOpenTest: (id: number) => 
         <div className="word-sets">
           <span className="muted">단어를 많이 저장한 세트:</span>
           {sets.map((s) => (
-            <button key={s.testId} className="chip" title="이 세트를 다시 풀기" onClick={() => onOpenTest(s.testId)}>
+            <button key={s.testId} className="chip" title={BRAND.copy.reopenSet} onClick={() => onOpenTest(s.testId)}>
               <Play size={11} /> {s.title} · {s.count}개
             </button>
           ))}

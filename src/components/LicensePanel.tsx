@@ -2,6 +2,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { BadgeCheck, ExternalLink, KeyRound, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { errorText } from "../lib/ai";
+import { BRAND } from "../lib/brand";
 import { activate, deactivate, licenseState, MARKET, TRIAL_DAYS, type LicenseState } from "../lib/license";
 
 const date = (iso: string) => new Date(iso).toLocaleDateString("ko-KR");
@@ -43,7 +44,7 @@ export default function LicensePanel() {
       </p>
       <p className="muted small">
         Studio는 월 구독입니다. 처음 {TRIAL_DAYS}일은 무료 체험이고, 그 뒤에는 마켓에서 받은 구독 키를 등록하면 AI 출제·내 자료 변환·편집·세트 파일
-        내보내기를 계속 쓸 수 있습니다. 풀이와 채점, 인쇄는 구독과 관계없이 언제나 쓸 수 있습니다.
+        내보내기를 계속 쓸 수 있습니다. {BRAND.copy.freeUse} 구독과 관계없이 언제나 쓸 수 있습니다.
       </p>
       {state?.state === "active" ? (
         <button className="btn small" disabled={busy} onClick={() => void run(deactivate)}>

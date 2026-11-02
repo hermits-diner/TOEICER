@@ -4,6 +4,7 @@ import AiSettingsPanel from "../components/AiSettingsPanel";
 import DataSettings from "../components/DataSettings";
 import Hint from "../components/Hint";
 import PhotoSettings from "../components/PhotoSettings";
+import { BRAND } from "../lib/brand";
 import { ACCENTS, clampZoom, THEMES, ZOOM_MAX, ZOOM_MIN, ZOOM_STEP, type Prefs } from "../lib/theme";
 
 // Studio only; a Reader build leaves it out.
@@ -71,7 +72,7 @@ export default function Settings({ prefs, onChange }: { prefs: Prefs; onChange: 
 
       <h3 className="section-title">
         본문 글꼴
-        <Hint text="지문·문항·가이드 본문에 쓰입니다. 전자책 글꼴은 Literata와 리디바탕이며, PC에 Bookerly가 있으면 그것을 먼저 씁니다. 메뉴와 버튼은 고딕 그대로입니다." />
+        <Hint text={`${BRAND.copy.fontUse} 본문에 쓰입니다. 전자책 글꼴은 Literata와 리디바탕이며, PC에 Bookerly가 있으면 그것을 먼저 씁니다. 메뉴와 버튼은 고딕 그대로입니다.`} />
       </h3>
       <div className="settings-row">
         <div className="segmented">
@@ -82,7 +83,7 @@ export default function Settings({ prefs, onChange }: { prefs: Prefs; onChange: 
             고딕
           </button>
         </div>
-        <span className="font-sample passage-sample">The quick brown fox jumps over the lazy dog. 지문과 문항은 이 글꼴로.</span>
+        <span className="font-sample passage-sample">The quick brown fox jumps over the lazy dog. {BRAND.copy.fontSample} 이 글꼴로.</span>
       </div>
 
       <PhotoSettings show={prefs.showPhotos} onToggle={(showPhotos) => onChange({ ...prefs, showPhotos })} />

@@ -12,7 +12,8 @@ type Flusher = () => Promise<unknown>;
 const flushers = new Set<Flusher>();
 let installed = false;
 
-async function flushAll(): Promise<void> {
+/** Runs the registered work, as closing the window does; also for exits that skip the close (an update's installer). */
+export async function flushBeforeExit(): Promise<void> {
   const all = Promise.all(
     [...flushers].map((f) => Promise.resolve().then(f).catch((e: unknown) => console.warn("could not save before closing", e))),
   );
@@ -28,7 +29,7 @@ export function onWindowClose(flush: Flusher): () => void {
     installed = true;
     try {
       getCurrentWindow()
-        .onCloseRequested(() => flushAll())
+        .onCloseRequested(() => flushBeforeExit())
         .catch((e: unknown) => console.warn("could not watch the window closing", e));
     } catch (e) {
       // Outside the app window (a plain browser): nothing to watch; leaving the screen still saves.

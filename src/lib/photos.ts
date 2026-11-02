@@ -25,3 +25,6 @@ export const PHOTOS = {
   resources: { src: libraryShelves, caption: "Library", author: "Gérard Griffay", url: u("YsBdqVgCDVI") },
   app: { src: readingRoom, caption: "Reading room", author: "Lilian Do Khac", url: u("8CASOM38lQc") },
 } satisfies Record<string, Photo>;
+
+/** Each photo once, for the credits in 설정 (PhotoSettings). */
+export const PHOTO_CREDITS: Photo[] = [...new Map(Object.values(PHOTOS).map((p) => [p.url, p])).values()];

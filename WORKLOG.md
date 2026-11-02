@@ -1,5 +1,20 @@
 # WORKLOG
 
+## 2026-11-02
+
+### 공통 코어: TOEFLER와 같은 파일 30개를 받고, 앱별 값은 brand로 옮김
+
+- **무엇을 했는가**: TOEFLER의 `core.json`에 있는 공유 파일 30개(`cli.rs`, `backup.rs`, `edition.rs`, 단어장·단어 찾기, 구독, 테마, 설정 화면, `jobStore`, `closeGuard` 등)를 `node scripts/core.mjs sync`로 그대로 받았다. 이 앱만의 값은 `src/lib/brand.ts`와 새 `src-tauri/src/brand.rs`로 옮겼다: 앱 이름 `TOEICER`, DB `toeic.db`, 백업 폴더 `TOEICER 백업`, 저장 키 `toeicer.prefs`, 마켓 slug `toeic`, 대표 테마 `office`, 발음 `en-GB`, 화면 문구 6개, 단어 프롬프트 두 곳. 값은 동기화 전 이 앱의 파일에서 그대로 뽑았으므로 데이터 위치·설정·문구는 바뀌지 않는다.
+- **왜**: 형제 앱 커밋의 64%가 TOEFLER 변경을 옮겨 적는 일이었다. 같은 파일을 글자까지 같게 두면 고치는 곳이 TOEFLER 하나가 된다. 자세한 판단과 측정은 TOEFLER WORKLOG(2026-11-02)에 있다.
+- **이 앱에서 달라진 것**
+  - `backup.rs`에 녹음 백업(`backup_sync_recordings`, 일일 사본 옆 `녹음` 폴더 복원)이 들어왔다. 이 앱은 녹음이 없어 부르지 않는다. 미사용 경고가 나지 않게 `lib.rs`에 명령만 등록했다.
+  - 세피아 테마 설명이 "종이 느낌, 눈이 편한 밝은 테마"로 바뀌었다(8개 앱 공통 문구).
+  - 사진 출처 목록은 `photos.ts`의 `PHOTO_CREDITS`(같은 사진은 한 번만)를 보여 준다.
+  - `jobStore.ts`·`cli.rs` 테스트·주석이 TOEFLER와 같은 모양이 됐다. 끝난 작업의 취소를 거부하는 동작은 같다.
+  - `cli::ai_end_all_jobs` 명령이 생겼다(TOEFLER 업데이터가 설치 전에 쓰는 명령, 이 앱에서는 아직 쓰지 않음). `closeGuard.ts`가 `flushBeforeExit`을 내보낸다.
+- **어떻게 확인했는가**: 무료판·Studio 빌드(tsc 포함), `npm test` 181개, `cargo test` 39개 통과.
+- **앞으로**: `core.json`에 있는 파일은 여기서 고치지 않는다. TOEFLER에서 고치고 `node scripts/core.mjs sync <이 앱 폴더>`로 받는다. 여기서 고치면 `scripts/core.test.mjs`가 실패하고, TOEFLER의 `sync`도 덮어쓰지 않고 멈춘다.
+
 ## 2026-11-01
 
 ### 다른 앱의 백업을 복원하려 하면 거절하도록 복원 검사를 강화

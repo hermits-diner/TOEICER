@@ -2,7 +2,7 @@
    sections, steps, result and report. The screen can be left and come back to, a sidebar can show how far the job
    is, and cancelling ends the processes it waits on (the app's `cancel`, e.g. ai_cancel_job). A finished job holds its
    result until the user opens it, so nothing jumps to another screen by itself. The app-specific part (what the job
-   does, its step plan and labels) lives in a module like src/lib/toeicJob.ts. */
+   does, its step plan and labels) lives in the app's own module (src/lib/<exam>Job.ts). */
 import { useSyncExternalStore } from "react";
 
 export type JobStatus = "idle" | "running" | "cancelling" | "saving" | "done" | "failed" | "cancelled";

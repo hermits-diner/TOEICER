@@ -1,5 +1,6 @@
 mod ai;
 mod backup;
+mod brand;
 mod cli;
 mod edition;
 mod media;
@@ -116,6 +117,7 @@ pub fn run() {
             backup::backup_list_auto,
             backup::backup_location,
             backup::backup_onedrive_dir,
+            backup::backup_sync_recordings,
             backup::backup_prune_auto,
             backup::backup_snapshot_path,
             backup::backup_write_zip,
@@ -123,6 +125,7 @@ pub fn run() {
             backup::restore_commit,
             backup::restore_prepare,
             cli::ai_cancel_job,
+            cli::ai_end_all_jobs,
             cli::ai_end_job,
             migration_checksums,
             media::archive_sample_audio,

@@ -3,7 +3,7 @@ import { ImagePlus, RotateCcw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { fileToPhotoDataUrl, getSetting, setSetting } from "../lib/appSettings";
 import { DICTIONARY_CREDIT } from "../lib/dictionary";
-import { PHOTOS } from "../lib/photos";
+import { PHOTO_CREDITS, PHOTOS } from "../lib/photos";
 
 export default function PhotoSettings({ show, onToggle }: { show: boolean; onToggle: (show: boolean) => void }) {
   const [userPhoto, setUserPhoto] = useState<string | null>(null);
@@ -72,7 +72,7 @@ export default function PhotoSettings({ show, onToggle }: { show: boolean; onTog
         <summary>사진·사전 출처</summary>
         <p className="muted">기본 사진: Unsplash License</p>
         <ul>
-          {Object.values(PHOTOS).map((p) => (
+          {PHOTO_CREDITS.map((p) => (
             <li key={p.url}>
               <button className="link-btn" onClick={() => openUrl(p.url).catch(() => {})}>
                 {p.caption}

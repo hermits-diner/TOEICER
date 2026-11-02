@@ -1,16 +1,27 @@
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { BRAND } from "./brand";
 
-export type ThemeId = "office" | "system" | "light" | "dark" | "sepia" | "seojae" | "midnight";
+/** The app's own theme (BRAND.theme, null when it has none). */
+type SignatureId = typeof BRAND.theme extends { readonly id: infer I extends string } ? I : never;
+export type ThemeId = SignatureId | "system" | "light" | "dark" | "sepia" | "seojae" | "midnight";
 export type FontId = "ebook" | "sans";
 export type AccentId = "blue" | "purple" | "pink" | "red" | "orange" | "green" | "graphite";
 
-export const THEMES: { id: ThemeId; label: string; desc: string; preview: [string, string, string] }[] = [
-  { id: "office", label: "오피스", desc: "TOEICER 기본: 먹색 글씨와 에메랄드 포인트, 오렌지 강조. 깔끔한 업무용 느낌", preview: ["#eef1ef", "#fbfcfb", "#1f2a2e"] },
+interface Theme {
+  id: ThemeId;
+  label: string;
+  desc: string;
+  preview: readonly [string, string, string];
+}
+const SIGNATURE = BRAND.theme as Theme | null;
+
+export const THEMES: Theme[] = [
+  ...(SIGNATURE ? [SIGNATURE] : []),
   { id: "system", label: "시스템", desc: "Windows 라이트/다크 설정을 따릅니다", preview: ["#f6f6f6", "#ffffff", "#1d1d1f"] },
   { id: "light", label: "라이트", desc: "밝은 기본 테마", preview: ["#f6f6f6", "#ffffff", "#1d1d1f"] },
   { id: "dark", label: "다크", desc: "어두운 기본 테마", preview: ["#2b2b2d", "#1e1e20", "#f5f5f7"] },
-  { id: "sepia", label: "세피아", desc: "종이 느낌, 긴 지문 읽기용", preview: ["#ece2cc", "#f6efdf", "#433422"] },
+  { id: "sepia", label: "세피아", desc: "종이 느낌, 눈이 편한 밝은 테마", preview: ["#ece2cc", "#f6efdf", "#433422"] },
   { id: "seojae", label: "서재", desc: "청자빛 종이와 명조 제목, 주홍 낙관", preview: ["#e3e9e1", "#eef2ec", "#1e2a22"] },
   { id: "midnight", label: "미드나이트", desc: "푸른빛이 도는 어두운 테마", preview: ["#141b2d", "#0f1524", "#e3e8f4"] },
 ];
@@ -28,7 +39,7 @@ export const ACCENTS: { id: AccentId; label: string; color: string }[] = [
 export interface Prefs {
   theme: ThemeId;
   accent: AccentId;
-  /** Typeface for passages, questions and the guide. */
+  /** Typeface for the exam's text (passages, questions, model answers) and the guide. */
   font: FontId;
   /** Photos on the home screen and guide; off for a plainer, more focused look. */
   showPhotos: boolean;
@@ -36,8 +47,10 @@ export interface Prefs {
   zoom: number;
 }
 
-const KEY = "toeicer.prefs";
-const DEFAULT: Prefs = { theme: "office", accent: "blue", font: "ebook", showPhotos: true, zoom: 1 };
+const KEY = `${BRAND.prefix}.prefs`;
+/** An app without a signature theme starts on 서재. */
+const DEFAULT: Prefs = { theme: SIGNATURE?.id ?? "seojae", accent: "blue", font: "ebook", showPhotos: true, zoom: 1 };
+const LIGHT: ThemeId[] = ["light", "sepia", "seojae", ...(SIGNATURE ? [SIGNATURE.id] : [])];
 
 export const ZOOM_MIN = 0.7;
 export const ZOOM_MAX = 2;
@@ -78,8 +91,7 @@ export function applyPrefs(p: Prefs): void {
   root.dataset.theme = p.theme;
   root.dataset.accent = p.accent;
   root.dataset.font = p.font;
-  const native =
-    p.theme === "system" ? null : p.theme === "light" || p.theme === "sepia" || p.theme === "seojae" || p.theme === "office" ? "light" : "dark";
+  const native = p.theme === "system" ? null : LIGHT.includes(p.theme) ? "light" : "dark";
   getCurrentWindow()
     .setTheme(native)
     .catch(() => {});

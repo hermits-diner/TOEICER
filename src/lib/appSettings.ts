@@ -4,6 +4,8 @@ import { getDb } from "./db";
 type Key =
   | "home_photo"
   | "exam_date"
+  /** The home screen's goal: a band in some apps, a score in others; an app uses one of them or neither. */
+  | "target_band"
   | "target_score"
   | "backup_dir"
   | "samples_installed"

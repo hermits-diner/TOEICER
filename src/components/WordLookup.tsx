@@ -1,6 +1,7 @@
 import { BookmarkCheck, BookmarkPlus, Sparkles, Volume2, X } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { errorText, loadAiSettings } from "../lib/ai";
+import { BRAND } from "../lib/brand";
 import { DICTIONARY_CREDIT, lookup, preloadDictionary, type Entry } from "../lib/dictionary";
 import { explainWord, findWord, saveWord, sentenceAround, type WordInsight } from "../lib/vocab";
 
@@ -45,13 +46,13 @@ function targetFromSelection(): Target | null {
 
 function speak(word: string) {
   const u = new SpeechSynthesisUtterance(word);
-  u.lang = "en-GB";
+  u.lang = BRAND.speechLang;
   u.rate = 0.9;
   speechSynthesis.cancel();
   speechSynthesis.speak(u);
 }
 
-/** App-wide: double-click an English word in a passage, transcript or task to see its meaning. */
+/** App-wide: double-click an English word anywhere in the exam's text to see its meaning. */
 export default function WordLookup() {
   const [target, setTarget] = useState<Target | null>(null);
   const [entry, setEntry] = useState<Entry | null | undefined>(undefined);

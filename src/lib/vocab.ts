@@ -140,14 +140,14 @@ Reply with a single JSON object and nothing else:
 {"meaning": string, "explanation": string, "synonyms": [string], "collocations": [string], "example": string}
 - meaning: the Korean meaning that fits this sentence, short (a dictionary-style gloss).
 - explanation: one or two Korean sentences on the nuance or usage here (polite 합니다체).
-- synonyms: 2-5 English words or phrases ${BRAND.examName} questions might use to paraphrase it in this sense.
+- synonyms: 2-5 English words or phrases ${BRAND.vocabPrompt.synonyms}.
 - collocations: 2-4 common English collocations with it.
 - example: one natural English example sentence in the same sense, followed by its Korean translation in parentheses.`;
 
 export function insightPrompt(word: string, sentence: string | null): string {
   return sentence
     ? `Word: ${word}\nSentence: ${sentence}`
-    : `Word: ${word}\n(No sentence available; use the most common academic sense.)`;
+    : `Word: ${word}\n(No sentence available; use the most common ${BRAND.vocabPrompt.sense} sense.)`;
 }
 
 export function parseInsight(text: string): WordInsight {

@@ -11,19 +11,23 @@ use std::time::SystemTime;
 use serde::Serialize;
 use tauri::{AppHandle, Manager};
 
-const DB: &str = "toeic.db";
+use crate::brand;
+
+const DB: &str = brand::DB_FILE;
 const AUTO_KEEP: usize = 7;
 const STAGING: &str = "restore-staging";
+/// Sub-folder of the backup folder that mirrors the learner's own recordings (apps with speaking).
+const RECORDINGS: &str = "녹음";
 const PENDING: &str = "restore-pending";
 
 fn data_dir(app: &AppHandle) -> Result<PathBuf, String> {
     app.path().app_data_dir().map_err(|e| e.to_string())
 }
 
-/// The default backup folder, Documents/TOEICER 백업. It is outside the app data folder because the uninstaller's
+/// The default backup folder, Documents/<BACKUP_FOLDER>. It is outside the app data folder because the uninstaller's
 /// "애플리케이션 데이터 삭제하기" removes that folder entirely, and the backups must survive it.
 fn default_dir(app: &AppHandle) -> Result<PathBuf, String> {
-    let d = app.path().document_dir().map_err(|e| e.to_string())?.join("TOEICER 백업");
+    let d = app.path().document_dir().map_err(|e| e.to_string())?.join(brand::BACKUP_FOLDER);
     fs::create_dir_all(&d).map_err(|e| format!("백업 폴더를 만들 수 없습니다: {e}"))?;
     // Move copies made by earlier versions, which kept them inside the app data folder.
     let old = data_dir(app)?.join("backups");
@@ -41,7 +45,7 @@ fn default_dir(app: &AppHandle) -> Result<PathBuf, String> {
 
 /// Whether files can be written to `dir` (an unplugged USB drive or a signed-out cloud folder cannot).
 fn writable(dir: &Path) -> bool {
-    let probe = dir.join(".toeicer-write-test");
+    let probe = dir.join(format!(".{}-write-test", brand::PREFIX));
     let ok = dir.is_dir() && fs::write(&probe, b"ok").is_ok();
     let _ = fs::remove_file(&probe);
     ok
@@ -102,6 +106,32 @@ pub fn backup_onedrive_dir() -> Option<String> {
         .iter()
         .filter_map(|v| std::env::var(v).ok())
         .find(|p| Path::new(p).is_dir())
+}
+
+/// Copies the learner's recordings (`aud-*.wav`) that are not yet in the backup folder. They exist nowhere else,
+/// unlike an exam's own audio, so the daily backup keeps them. Files are named by content hash. Apps without
+/// speaking never call it.
+#[tauri::command]
+pub fn backup_sync_recordings(app: AppHandle, dir: Option<String>) -> Result<usize, String> {
+    let target = backups_dir(&app, dir.as_deref())?.join(RECORDINGS);
+    sync_recordings(&data_dir(&app)?.join("raw"), &target)
+}
+
+fn sync_recordings(raw: &Path, target: &Path) -> Result<usize, String> {
+    let Ok(entries) = fs::read_dir(raw) else { return Ok(0) };
+    let mut copied = 0;
+    for e in entries.flatten() {
+        let name = e.file_name().to_string_lossy().into_owned();
+        if !(name.starts_with("aud-") && name.ends_with(".wav")) {
+            continue;
+        }
+        fs::create_dir_all(target).map_err(|e| format!("녹음 백업 폴더를 만들 수 없습니다: {e}"))?;
+        let dest = target.join(&name);
+        if !dest.exists() && fs::copy(e.path(), &dest).is_ok() {
+            copied += 1;
+        }
+    }
+    Ok(copied)
 }
 
 fn is_sqlite(path: &Path) -> bool {
@@ -179,7 +209,7 @@ pub fn backup_prune_auto(app: AppHandle, dir: Option<String>) -> Result<usize, S
     Ok(removed)
 }
 
-/// Packs a snapshot and the media archive (listening recordings, Part 1 photographs) into `dest`, then deletes the snapshot.
+/// Packs a snapshot and the raw archive (audio, pictures, originals) into `dest`, then deletes the snapshot.
 #[tauri::command]
 pub async fn backup_write_zip(
     app: AppHandle,
@@ -209,14 +239,14 @@ fn write_zip(
     let mut zip = zip::ZipWriter::new(file);
     let deflate = zip::write::SimpleFileOptions::default()
         .compression_method(zip::CompressionMethod::Deflated);
-    // Recordings and pictures are already compressed; storing them is as small and much faster.
+    // Audio and pictures are already compressed; storing them is as small and much faster.
     let stored =
         zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
     let w = |e: zip::result::ZipError| format!("백업 파일을 쓰지 못했습니다: {e}");
     let io = |e: std::io::Error| format!("백업 파일을 쓰지 못했습니다: {e}");
 
     zip.start_file("manifest.json", deflate).map_err(w)?;
-    zip.write_all(format!(r#"{{"app":"TOEICER","version":"{version}","format":1}}"#).as_bytes())
+    zip.write_all(format!(r#"{{"app":"{}","version":"{version}","format":1}}"#, brand::APP_NAME).as_bytes())
         .map_err(io)?;
     zip.start_file(DB, deflate).map_err(w)?;
     zip.write_all(&fs::read(snapshot).map_err(io)?)
@@ -257,10 +287,14 @@ fn prepare(src: &Path, staging: &Path) -> Result<String, String> {
     let db = staging.join(DB);
     if is_sqlite(src) {
         fs::copy(src, &db).map_err(|e| format!("백업 파일을 복사하지 못했습니다: {e}"))?;
+        // A daily copy carries no recordings; bring back the mirrored ones that sit beside it.
+        if let Some(rec) = src.parent().map(|d| d.join(RECORDINGS)) {
+            sync_recordings(&rec, &staging.join("raw"))?;
+        }
     } else {
         let file = fs::File::open(src).map_err(|e| format!("백업 파일을 열 수 없습니다: {e}"))?;
         let mut zip = zip::ZipArchive::new(file)
-            .map_err(|_| "TOEICER 백업 파일(.zip 또는 .db)이 아닙니다.".to_string())?;
+            .map_err(|_| format!("{} 백업 파일(.zip 또는 .db)이 아닙니다.", brand::APP_NAME))?;
         for i in 0..zip.len() {
             let mut entry = zip.by_index(i).map_err(|e| e.to_string())?;
             // enclosed_name rejects absolute paths and `..` components.
@@ -319,7 +353,7 @@ fn apply_pending(dir: &Path) -> Result<bool, String> {
     let staging = dir.join(STAGING);
     let staged = staging.join(DB);
     if is_sqlite(&staged) {
-        for f in [DB, "toeic.db-wal", "toeic.db-shm"] {
+        for f in [DB.to_string(), format!("{DB}-wal"), format!("{DB}-shm")] {
             let _ = fs::remove_file(dir.join(f));
         }
         fs::rename(&staged, dir.join(DB)).map_err(|e| e.to_string())?;
@@ -346,7 +380,7 @@ mod tests {
 
     fn tmp(name: &str) -> PathBuf {
         let d =
-            std::env::temp_dir().join(format!("toeicer-backup-test-{name}-{}", std::process::id()));
+            std::env::temp_dir().join(format!("{}-backup-test-{name}-{}", brand::PREFIX, std::process::id()));
         let _ = fs::remove_dir_all(&d);
         fs::create_dir_all(&d).unwrap();
         d
@@ -379,7 +413,7 @@ mod tests {
         let other = tmp("other");
         fs::create_dir_all(other.join("raw")).unwrap();
         fake_db(&other.join(DB), "old");
-        fs::write(other.join("toeic.db-wal"), b"wal").unwrap();
+        fs::write(other.join(format!("{DB}-wal")), b"wal").unwrap();
         fs::write(other.join("raw").join("bbb.png"), b"pic").unwrap();
         let staged = prepare(&zip_path, &other.join(STAGING)).unwrap();
         assert!(staged.ends_with(DB));
@@ -387,7 +421,7 @@ mod tests {
         assert!(apply_pending(&other).unwrap());
 
         assert!(fs::read(other.join(DB)).unwrap().ends_with(b"snapshot"));
-        assert!(!other.join("toeic.db-wal").exists());
+        assert!(!other.join(format!("{DB}-wal")).exists());
         assert_eq!(
             fs::read(other.join("raw").join("aaa.mp3")).unwrap(),
             b"audio"
@@ -395,6 +429,38 @@ mod tests {
         assert_eq!(fs::read(other.join("raw").join("bbb.png")).unwrap(), b"pic");
         assert!(!other.join(STAGING).exists() && !other.join(PENDING).exists());
         assert!(!apply_pending(&other).unwrap());
+    }
+
+    #[test]
+    fn compresses_text_but_stores_media_and_names_the_app() {
+        let d = tmp("zip");
+        fs::create_dir_all(d.join("raw")).unwrap();
+        fs::write(d.join("raw").join("a.json"), b"{}").unwrap();
+        fs::write(d.join("raw").join("b.mp3"), b"audio").unwrap();
+        fake_db(&d.join("snap.db"), "s");
+        write_zip(&d.join("snap.db"), &d.join("raw"), &d.join("out.zip"), "1.0.0").unwrap();
+        let mut z = zip::ZipArchive::new(fs::File::open(d.join("out.zip")).unwrap()).unwrap();
+        assert_eq!(z.by_name("raw/a.json").unwrap().compression(), zip::CompressionMethod::Deflated);
+        assert_eq!(z.by_name("raw/b.mp3").unwrap().compression(), zip::CompressionMethod::Stored);
+        let mut manifest = String::new();
+        z.by_name("manifest.json").unwrap().read_to_string(&mut manifest).unwrap();
+        assert!(manifest.contains(&format!(r#""app":"{}""#, brand::APP_NAME)));
+    }
+
+    #[test]
+    fn mirrors_recordings_and_restores_them_with_a_daily_copy() {
+        let d = tmp("rec");
+        fs::create_dir_all(d.join("raw")).unwrap();
+        fs::write(d.join("raw").join("aud-1.wav"), b"me").unwrap();
+        fs::write(d.join("raw").join("aud-2.mp3"), b"collected").unwrap();
+        let backups = d.join("backups");
+        assert_eq!(sync_recordings(&d.join("raw"), &backups.join(RECORDINGS)).unwrap(), 1);
+        assert_eq!(sync_recordings(&d.join("raw"), &backups.join(RECORDINGS)).unwrap(), 0);
+
+        fake_db(&backups.join("auto-2026-10-06.db"), "daily");
+        prepare(&backups.join("auto-2026-10-06.db"), &d.join(STAGING)).unwrap();
+        assert_eq!(fs::read(d.join(STAGING).join("raw").join("aud-1.wav")).unwrap(), b"me");
+        assert!(!d.join(STAGING).join("raw").join("aud-2.mp3").exists());
     }
 
     #[test]
@@ -418,7 +484,7 @@ mod tests {
         // A zip whose only database entry tries to escape the staging folder.
         let evil = d.join("evil.zip");
         let mut z = zip::ZipWriter::new(fs::File::create(&evil).unwrap());
-        z.start_file("../toeic.db", zip::write::SimpleFileOptions::default())
+        z.start_file(format!("../{DB}"), zip::write::SimpleFileOptions::default())
             .unwrap();
         z.write_all(b"SQLite format 3\0x").unwrap();
         z.finish().unwrap();

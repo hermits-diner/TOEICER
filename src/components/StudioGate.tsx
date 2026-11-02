@@ -1,5 +1,6 @@
 import { BadgeCheck, Lock } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
+import { BRAND } from "../lib/brand";
 import { canCreate, licenseState, type LicenseState } from "../lib/license";
 import { describeLicense } from "./LicensePanel";
 
@@ -16,7 +17,7 @@ export default function StudioGate({ children }: { children: ReactNode }) {
         <Lock size={18} />
         <div>
           <b>{state.state === "expired" ? state.reason : ""}</b>
-          <p className="muted">설정 › Studio 구독에서 구독 키를 등록하면 AI 출제와 내 자료 변환을 계속 쓸 수 있습니다. 풀이·채점·인쇄는 그대로 됩니다.</p>
+          <p className="muted">설정 › Studio 구독에서 구독 키를 등록하면 AI 출제와 내 자료 변환을 계속 쓸 수 있습니다. {BRAND.copy.freeUseShort} 그대로 됩니다.</p>
         </div>
       </div>
     );

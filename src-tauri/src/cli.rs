@@ -36,7 +36,7 @@ pub const CANCELLED: &str = "취소했습니다.";
 /// A job with no CLI running is forgotten after this long, in case the page never ends it (a reload mid-run).
 const IDLE_JOB: Duration = Duration::from_secs(60 * 60);
 /// Where CLI runs outside any job (explanations, the converter, status checks) are kept, so the app's exit can end
-/// them too. Never cancelled or ended by name.
+/// them too. Never cancelled.
 const UNTAGGED: &str = "\u{1}untagged";
 
 struct JobEntry {
@@ -117,7 +117,7 @@ impl Jobs {
         self.lock().get(job).is_some_and(|e| e.cancelled)
     }
 
-    /// Forgets an ended job. The untagged runs are not a job: dropping them would let the app's exit miss them.
+    /// Forgets an ended job. The untagged key is the app's own, not a job's: its processes stay listed for the exit.
     fn end(&self, job: &str) {
         if job == UNTAGGED {
             return;
@@ -217,6 +217,13 @@ pub fn end_all_jobs() {
             eprintln!("{e}");
         }
     }
+}
+
+/// Before an update's installer runs: the updater ends the process with `std::process::exit` without the exit event
+/// that calls end_all_jobs, so the page asks for it first (src/lib/updates.ts).
+#[tauri::command]
+pub fn ai_end_all_jobs() {
+    end_all_jobs();
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -389,7 +396,7 @@ async fn run(mut cmd: Command, stdin_text: Option<&str>, timeout: Duration, what
 fn scratch_dir() -> Result<PathBuf, String> {
     let n = RUN_COUNTER.fetch_add(1, Ordering::Relaxed);
     let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
-    let dir = std::env::temp_dir().join(format!("toeicer-cli-{}-{stamp}-{n}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("{}-cli-{}-{stamp}-{n}", crate::brand::PREFIX, std::process::id()));
     std::fs::create_dir_all(&dir).map_err(|e| format!("임시 폴더를 만들지 못했습니다: {e}"))?;
     Ok(dir)
 }
@@ -946,20 +953,27 @@ mod tests {
     }
 
     #[test]
-    fn untagged_runs_are_ended_on_exit_but_never_cancelled_or_forgotten() {
+    fn untagged_runs_are_ended_on_exit_but_never_cancelled() {
         let jobs = Jobs::default();
         jobs.register(UNTAGGED, 9).unwrap();
         assert!(jobs.cancel(UNTAGGED).is_empty());
         assert!(!jobs.is_cancelled(UNTAGGED));
-        // ending a job by that name must not drop the runs outside any job: the app's exit still has to end them
-        jobs.end(UNTAGGED);
-        assert_eq!(jobs.pids(UNTAGGED), vec![9]);
         jobs.register(UNTAGGED, 10).unwrap();
         jobs.begin("j").unwrap();
         jobs.register("j", 4).unwrap();
         let mut all = jobs.cancel_all();
         all.sort();
         assert_eq!(all, vec![4, 9, 10]);
+    }
+
+    #[test]
+    fn ending_the_untagged_key_keeps_its_processes_for_the_exit() {
+        let jobs = Jobs::default();
+        jobs.register(UNTAGGED, 9).unwrap();
+        jobs.end(UNTAGGED);
+        let mut all = jobs.cancel_all();
+        all.sort();
+        assert_eq!(all, vec![9]);
     }
 
     #[test]

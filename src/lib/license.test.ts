@@ -6,6 +6,7 @@ vi.mock("./appSettings", () => ({
   setSetting: vi.fn(async (k: string, v: string | null) => void (v === null ? store.delete(k) : store.set(k, v))),
 }));
 const { canCreate, licenseState, MARKET, TRIAL_DAYS, verifyToken } = await import("./license");
+const { BRAND } = await import("./brand");
 
 const DAY = 24 * 60 * 60 * 1000;
 const b64 = (bytes: ArrayBuffer | Uint8Array) => btoa(String.fromCharCode(...new Uint8Array(bytes)));
@@ -35,10 +36,10 @@ describe("Studio licence", () => {
   });
   it("accepts only a token the market signed for this app, with a week of grace after the month", async () => {
     const until = "2026-12-01T00:00:00Z";
-    const m = await market({ key: "K", app: "TOEICER", plan: "월 구독", expiresAt: until });
+    const m = await market({ key: "K", app: BRAND.appName, plan: "월 구독", expiresAt: until });
     expect(await verifyToken(m.token, m.publicKey)).toMatchObject({ plan: "월 구독" });
     expect(await verifyToken(m.token.replace(/.$/, "A"), m.publicKey)).toBeNull();
-    const other = await market({ key: "K", app: "GONGSIER", plan: "월 구독", expiresAt: until });
+    const other = await market({ key: "K", app: `NOT-${BRAND.appName}`, plan: "월 구독", expiresAt: until });
     expect(await verifyToken(other.token, other.publicKey)).toBeNull();
 
     MARKET.publicKey = m.publicKey;
