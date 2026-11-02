@@ -1,5 +1,31 @@
 # WORKLOG
 
+## 2026-11-03
+
+### 마켓 자동 업데이트를 받음 (형제 앱 TOEFLER에서 실제 업데이트까지 확인한 것)
+
+- **무엇을 했는가**: TOEFLER v0.2.1에서 설치된 0.1.0이 마켓에서 스스로 업데이트되는 것을 확인한 뒤 옮겼다.
+  - 공유 파일 37 → 44개(`core.mjs sync`)
+    - 새로 받은 것: `src/lib/updates.ts`·`src/components/UpdateBanner.tsx`·`scripts/publish-update.mjs`와 각각의 테스트, `src-tauri/tauri.release.conf.json`.
+    - 바뀐 것: `src/lib/jobStore.ts`. 만든 작업 저장소를 기억해 두고 `anyJobBusy()`로 답한다. 그래서 `updates.ts`는 앱마다 이름이 다른 생성 모듈(`src/lib/<시험>Job.ts`)을 몰라도 AI 생성 중 설치를 막는다.
+  - 이 앱의 파일
+    - `tauri.conf.json`: 공개키(형제 앱 8개 공용 키), `https://exam-market.hermitsdiner.workers.dev/updates/toeic/<free|studio>/latest.json`의 free 주소, `installMode: passive`.
+    - `tauri.studio.conf.json`: studio 주소.
+    - `capabilities/default.json`: `updater:default`, `process:allow-restart`.
+    - `Cargo.toml`: `tauri-plugin-updater`, `tauri-plugin-process`.
+    - `Cargo.lock`: `cargo metadata --offline`으로 갱신했다. 패키지 26개가 더해지기만 했고, 모두 TOEFLER와 같은 버전이다(updater 2.14.1, process 2.4.0).
+    - `lib.rs`: 두 플러그인을 등록했다. 업데이트 전에 부르는 `cli::ai_end_all_jobs`는 공통 코어 1단계 때 이미 등록돼 있다.
+    - `package.json`: `@tauri-apps/plugin-updater@2.14.1`, `@tauri-apps/plugin-process@2.4.0`. Rust 쪽과 부 번호까지 같아야 `tauri build`가 통과한다.
+    - `App.tsx`·`App.css`: 오른쪽 아래 업데이트 알림과 테마별 배경. `tauri dev`에서는 알림을 띄우지 않는다.
+    - `release.yml`: 두 빌드에 서명 키를 주고, `includeUpdaterJson: false`와 `--config src-tauri/tauri.release.conf.json`을 쓰고, 태그일 때 마켓에 올린다. 이 파일이 업데이터를 넣기 전 TOEFLER 것과 앱 이름만 다르다는 것을 확인했다(줄 끝 무시). 그래서 지금 TOEFLER 것에서 이름만 바꿨다.
+    - README "### 자동 업데이트".
+- **어떻게 확인했는가**
+  - 두 판 빌드: 무료판 번들에는 생성 문구가 0건이고 업데이트 문구는 있다. Studio 번들에는 둘 다 있다.
+  - `npm test` 210개 통과(17개 늘어남), `npm audit` 0건, `cargo test --locked` 39개 통과(경고 없음).
+- **하지 않은 것**
+  - 이 저장소에는 GitHub 비밀값 4개가 아직 없다. 등록하기 전에 태그를 올리면 서명 단계에서 실패한다. 사용자가 `%USERPROFILE%\.tauri\set-release-secrets.ps1`을 실행해 7곳에 한 번에 등록한다.
+  - 첫 릴리스와 실제 업데이트 확인은 하지 않았다. 지금 설치된 이 앱에는 업데이터가 없으므로, 업데이터가 든 첫 버전은 한 번 손으로 설치해야 한다.
+
 ## 2026-11-02
 
 ### TOEFLER에 먼저 넣은 오류 경계·CI·버전 규칙·audit 정리를 받음

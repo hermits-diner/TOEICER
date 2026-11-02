@@ -15,7 +15,7 @@
     "src/components/PhotoBanner.tsx": "673c4d94dcfbf457a4ca3ab5f1eaec1fa8a2cd5a6c6f420832582cdf4669bcc4",
     "src/components/useCatalog.ts": "0e16fc3da6f70b6d0ab5d8fa5f8c37951648df2a568ab67e23ce200d17abc018",
     "src/components/Hint.tsx": "84ecde294d4aa4cbe5ae0c36a888e4ed244f5c56052deb930b6ec0e571850358",
-    "src/lib/jobStore.ts": "45f93955d3af401364bd502e8ecdcf41f8ba3f339ebaa2a8ea0429f29c5ea629",
+    "src/lib/jobStore.ts": "65fc1a6967fb39d5834f34553916604d1f10e84fecf69604f27061205466cd28",
     "src/lib/vocab.ts": "e9e828e0825125dda8094d7d0ad480e0a7e76680ca556f7f99e02bfa0872d4a6",
     "src/lib/dictionary.ts": "09a2784b692afae7e2d61a3bfa5866e3628f5a56e674f389a65186e825bd011c",
     "src/lib/license.ts": "e4be269cac60ad9fa06b28b361e6e9e745c1dad02c86aea26daf47808576e52a",
@@ -38,6 +38,13 @@
     "scripts/sync-version.test.mjs": "4c0d5a296ca5add31116cc2285439e2befb1a0c497a952664528915158817dca",
     ".github/workflows/ci.yml": "996270651f8444e945230f36611b31a1a973206aa9ef26d8446ab1d3f4f3c8b1",
     ".github/workflows/ci-rust.yml": "67ebd1dfac9499efbf1de06307c299f925984560561983b5e915aa3689bc17d9",
-    "src/App.test.tsx": "3a65e51f391f84cdc756e129f5693ddc65be985aa519199bb9cc3aca4febcd54"
+    "src/App.test.tsx": "3a65e51f391f84cdc756e129f5693ddc65be985aa519199bb9cc3aca4febcd54",
+    "src/lib/updates.ts": "7241617ee58606dcfb6d43b184b471a301a6b3758d017e4575e1db34a768a322",
+    "src/lib/updates.test.ts": "2628f94f53b0a56e2adcc0e6d0464113a183201c7cf30d7db4461b2168578888",
+    "src/components/UpdateBanner.tsx": "4205f00da3b1e5bd9483c85324a76c2f643765907af6135bf0aba01caceea8af",
+    "src/components/UpdateBanner.test.tsx": "fc33452005ac1271fc45fd579c7c8b59d0841901733e4cfeb5219ecb21f6b311",
+    "scripts/publish-update.mjs": "a29366e65820f2e62805171b5e7651abe41aa00a758f0943223f6c3bb701dd4c",
+    "scripts/publish-update.test.mjs": "5cae041bcaa597532cec421cd5ed70932a4ae196a6cbf72f49b40dc6fcb893a7",
+    "src-tauri/tauri.release.conf.json": "ca47b66a4879e955ed2cbe38aba72390dad1fa5edb203d6e06c61cf1156da36f"
   }
 }

@@ -1,6 +1,9 @@
-# Builds both Windows editions on a v* tag (TOEICER, the free reader, and TOEICER Studio) and attaches their
-# installers to the GitHub release of that tag.
+# Builds both Windows editions on a v* tag (TOEICER, the free reader, and TOEICER Studio), signed for the updater,
+# attaches their installers to the GitHub release of that tag, and publishes them on the market: this repo is private,
+# so the apps and visitors download from the market's R2 bucket (scripts/publish-update.mjs), not from GitHub.
 # The release may already exist (made by hand with a locally built exe); tauri-action then adds its assets to it.
+# Secrets: TAURI_SIGNING_PRIVATE_KEY(_PASSWORD) sign the installers; CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID
+# upload them.
 name: Release
 
 on:
@@ -23,7 +26,7 @@ jobs:
           node-version: 24
           cache: npm
 
-      # The release takes the tag's name, but the installers and the backups report tauri.conf.json's version.
+      # The release takes the tag's name, but the installers and the updater report tauri.conf.json's version.
       # `npm version` keeps the two together; a tag made any other way stops here.
       - name: Check the tag names the app version
         if: github.ref_type == 'tag'
@@ -45,23 +48,42 @@ jobs:
 
       - run: npm test
 
+      # tauri.release.conf.json turns on the signed updater files; local builds leave it off and need no key.
+      # includeUpdaterJson is off: both editions would write one latest.json on this release, the second over the
+      # first, so the market's manifests are made per edition by publish-update.mjs instead.
       - name: Build TOEICER (reader) and attach it to the release
         uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "TOEICER ${{ github.ref_name }}"
           releaseDraft: false
           prerelease: false
+          includeUpdaterJson: false
+          args: --config src-tauri/tauri.release.conf.json
 
       - name: Build TOEICER Studio and attach it to the same release
         uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "TOEICER ${{ github.ref_name }}"
           releaseDraft: false
           prerelease: false
-          args: --config src-tauri/tauri.studio.conf.json
+          includeUpdaterJson: false
+          args: --config src-tauri/tauri.studio.conf.json --config src-tauri/tauri.release.conf.json
+
+      - name: Publish both editions on the market
+        if: github.ref_type == 'tag'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          npm install --no-save wrangler@4.155.0
+          node scripts/publish-update.mjs

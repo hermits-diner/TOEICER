@@ -73,6 +73,14 @@ npm test
 - `git push origin main --follow-tags`로 올리면 `release.yml`이 두 판을 빌드합니다. 태그와 앱 버전이 다르면 빌드 전에 멈춥니다.
 - 버전을 손으로 고치지 마십시오. 네 파일이 어긋나면 `npm test`가 실패합니다.
 
+### 자동 업데이트
+- 저장소가 비공개라 설치 파일은 GitHub가 아니라 마켓(exam-market의 R2)에서 내려받습니다. `release.yml`이 두 판을 서명해 빌드한 뒤 `scripts/publish-update.mjs`로 올립니다. 설치 파일을 먼저 올리고 판별 `latest.json`을 나중에 올립니다.
+- 설치된 앱은 시작할 때 `https://exam-market.hermitsdiner.workers.dev/updates/toeic/<free|studio>/latest.json`을 확인하고, 새 버전이 있으면 오른쪽 아래에 알립니다. 설치 전에 풀던 답을 저장하고 AI CLI를 끝내며, AI 생성 중에는 설치하지 않습니다. `tauri dev`에서는 확인하지 않습니다.
+- 첫 릴리스가 올라가면 마켓 `/download`의 TOEICER "받기" 버튼이 저절로 켜집니다.
+- 필요한 GitHub 비밀값: `TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`(업데이트 서명), `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`(R2 업로드). 형제 앱 8개가 같은 키와 같은 값을 쓰지만, 비밀값은 저장소마다 따로 등록합니다.
+- 서명 키(`%USERPROFILE%\.tauri\hermits-exam-apps-updater.key`)는 따로 백업하십시오. 키를 잃으면 이미 설치된 앱에 더는 업데이트를 보낼 수 없습니다. 공개키는 `tauri.conf.json`의 `plugins.updater.pubkey`에 있습니다. 키 비밀번호는 같은 폴더의 `hermits-exam-apps-updater.password.dpapi`에 이 PC의 Windows 계정으로만 풀리게 암호화해 두었습니다(PowerShell `[Security.Cryptography.ProtectedData]::Unprotect`, CurrentUser).
+- 서명은 배포 빌드에서만 합니다(`--config src-tauri/tauri.release.conf.json`). 로컬 빌드(`npm run build:reader:exe`)는 키 없이 됩니다.
+
 ## 데이터 위치
 - 데이터베이스: `%APPDATA%\com.toeicer.app\toeic.db` (Studio는 `com.toeicer.studio`)
 - 음성·사진: 같은 폴더의 `raw` / API 키: Windows 자격 증명 관리자

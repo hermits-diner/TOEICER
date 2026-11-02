@@ -18,6 +18,8 @@
     "dialog:allow-save",
     "dialog:allow-open",
     "sql:default",
-    "sql:allow-execute"
+    "sql:allow-execute",
+    "updater:default",
+    "process:allow-restart"
   ]
 }

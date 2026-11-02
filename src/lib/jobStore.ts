@@ -61,6 +61,11 @@ const CANCELLING = "취소하는 중";
 /** A job that is still running, saving or being cancelled: nothing else may start. */
 export const isBusy = (j: { status: JobStatus }) => j.status === "running" || j.status === "saving" || j.status === "cancelling";
 
+/** Every store made so far, so the updater can ask without importing the app's own job module (src/lib/updates.ts). */
+const stores = new Set<() => { status: JobStatus }>();
+/** Whether any job is running, saving or being cancelled. */
+export const anyJobBusy = () => [...stores].some((get) => isBusy(get()));
+
 const errorText = (e: unknown) => (typeof e === "string" ? e : e instanceof Error ? e.message : String(e));
 
 /** How far a job is, 0–100: each section an equal part of `share`, split evenly over its plan's stages; a step a
@@ -230,5 +235,6 @@ export function createJobStore<Sec extends string, Step extends string, Req, Res
     emit();
   }
 
+  stores.add(get);
   return { start, cancel, dismiss, get, subscribe, use: () => useSyncExternalStore(subscribe, get, get) };
 }

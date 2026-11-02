@@ -1011,10 +1011,26 @@ select.field option { background-color: var(--menu-bg); color: var(--text); }
   font-size: 13px;
   user-select: text;
 }
-:root[data-theme="dark"] .lookup { background: #2c2c2e; }
-:root[data-theme="midnight"] .lookup { background: #1c2438; }
-:root[data-theme="sepia"] .lookup { background: #fbf6ea; }
-@media (prefers-color-scheme: dark) { :root[data-theme="system"] .lookup { background: #2c2c2e; } }
+:root[data-theme="dark"] :is(.lookup, .update-banner) { background: #2c2c2e; }
+:root[data-theme="midnight"] :is(.lookup, .update-banner) { background: #1c2438; }
+:root[data-theme="sepia"] :is(.lookup, .update-banner) { background: #fbf6ea; }
+@media (prefers-color-scheme: dark) { :root[data-theme="system"] :is(.lookup, .update-banner) { background: #2c2c2e; } }
+
+.update-banner {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 45;
+  width: 320px;
+  padding: 14px 16px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--separator);
+  background: var(--control-bg);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.25);
+  font-size: 13px;
+}
+.update-banner p { margin: 0 0 8px; line-height: 1.5; }
+.update-banner .toolbar { margin: 4px 0 0; }
 .lookup-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px 4px; }
 .lookup-word { font-size: 18px; font-weight: 700; }
 .lookup-ipa { color: var(--text-secondary); font-size: 12.5px; }

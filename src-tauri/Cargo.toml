@@ -38,6 +38,8 @@ sha2 = "0.10"
 base64 = "0.22"
 url = "2"
 keyring = { version = "3", features = ["windows-native"] }
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
 
 [target.'cfg(windows)'.dependencies]
 window-vibrancy = "0.6"

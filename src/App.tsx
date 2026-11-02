@@ -6,6 +6,7 @@ import { BRAND } from "./lib/brand";
 import Sidebar, { type PageId } from "./components/Sidebar";
 import PageBoundary from "./components/PageBoundary";
 import TitleBar from "./components/TitleBar";
+import UpdateBanner from "./components/UpdateBanner";
 import WordLookup from "./components/WordLookup";
 import { loadAiSettings } from "./lib/ai";
 import { getSetting, setSetting } from "./lib/appSettings";
@@ -170,6 +171,8 @@ function App() {
         </main>
       </div>
       <WordLookup />
+      {/* `tauri dev` runs an older version than the market's, so it would always offer an update. */}
+      {!import.meta.env.DEV && <UpdateBanner />}
       {zoomToast !== null && <div className="zoom-toast">{Math.round(zoomToast * 100)}%</div>}
     </div>
   );

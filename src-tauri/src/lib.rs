@@ -101,6 +101,9 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .plugin(tauri_plugin_sql::Builder::default().add_migrations(DB_URL, migrations()).build())
+        // Updates from the market (plugins.updater in tauri.conf.json); src/lib/updates.ts installs them.
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .manage(ai::AiState::new())
         .manage(web::WebState::new())
         .manage(Opened(Mutex::new(set_files(std::env::args()))))
