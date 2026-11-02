@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import "./App.css";
 import { BRAND } from "./lib/brand";
 import Sidebar, { type PageId } from "./components/Sidebar";
+import PageBoundary from "./components/PageBoundary";
 import TitleBar from "./components/TitleBar";
 import WordLookup from "./components/WordLookup";
 import { loadAiSettings } from "./lib/ai";
@@ -162,7 +163,11 @@ function App() {
           }}
           onOpenTest={openTest}
         />
-        <main className="main">{main}</main>
+        <main className="main">
+          <PageBoundary resetKey={`${page}:${practiceId ?? ""}`} onHome={() => navigate("home")}>
+            {main}
+          </PageBoundary>
+        </main>
       </div>
       <WordLookup />
       {zoomToast !== null && <div className="zoom-toast">{Math.round(zoomToast * 100)}%</div>}

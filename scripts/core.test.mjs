@@ -41,4 +41,13 @@ describe("shared core", () => {
     expect(drift(sibling)).toEqual(["src/a.ts"]);
     expect(() => sync(source, sibling)).toThrow(/edited there/);
   });
+
+  it("refuses to overwrite a sibling's own version of a file that is newly shared", () => {
+    const source = app({ [MANIFEST]: JSON.stringify({ files: { "src/b.ts": "" } }), "src/b.ts": "shared\n" });
+    const sibling = app({ "src/b.ts": "its own\n" });
+    lock(source);
+    expect(() => sync(source, sibling)).toThrow(/its own version of newly shared files.*\(src\/b\.ts\)/);
+    writeFileSync(join(sibling, "src/b.ts"), "shared\r\n");
+    expect(sync(source, sibling)).toBe(1);
+  });
 });

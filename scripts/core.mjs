@@ -42,11 +42,15 @@ export function sync(source, target) {
   const stale = drift(source);
   if (stale.length) throw new Error(`${source}: lock the shared files first (${stale.join(", ")})`);
   // A sibling whose copies were edited after the last sync holds a change the source lacks; copying would erase it.
-  if (existsSync(join(target, MANIFEST))) {
-    const edited = drift(target);
-    if (edited.length) throw new Error(`${target}: its shared files were edited there; move the change to the source app first (${edited.join(", ")})`);
-  }
+  const known = existsSync(join(target, MANIFEST)) ? readManifest(target).files : {};
+  const edited = existsSync(join(target, MANIFEST)) ? drift(target) : [];
+  if (edited.length) throw new Error(`${target}: its shared files were edited there; move the change to the source app first (${edited.join(", ")})`);
   const m = readManifest(source);
+  // A file newly shared may already exist in the sibling as its own version; that one needs a look first, too.
+  const own = Object.entries(m.files)
+    .filter(([path, hash]) => !(path in known) && existsSync(join(target, path)) && hashOf(readFileSync(join(target, path), "utf8")) !== hash)
+    .map(([path]) => path);
+  if (own.length) throw new Error(`${target}: has its own version of newly shared files; compare them with the source first (${own.join(", ")})`);
   for (const path of Object.keys(m.files)) {
     mkdirSync(dirname(join(target, path)), { recursive: true });
     copyFileSync(join(source, path), join(target, path));

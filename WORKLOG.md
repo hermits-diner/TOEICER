@@ -2,6 +2,15 @@
 
 ## 2026-11-02
 
+### TOEFLER에 먼저 넣은 오류 경계·CI·버전 규칙·audit 정리를 받음
+
+- **무엇을 했는가**
+  - 공유 파일로 받은 것(`core.json`에 추가됨): `src/components/PageBoundary.tsx`와 테스트, `src/App.test.tsx`, `scripts/sync-version.mjs`와 테스트, `.github/workflows/ci.yml`(Ubuntu: `npm ci`·`npm test`·두 판 빌드), `.github/workflows/ci-rust.yml`(Windows: `cargo test --locked`).
+  - 이 앱의 파일: `App.tsx`가 본문(`<main>`)을 `PageBoundary`로 감싼다. 화면을 고르는 상태(page·practiceId)가 바뀌면 오류 화면이 풀린다. `App.css`에 `.page-error`를 넣었다. `package.json`에 `version` 스크립트를 넣고, 어느 테스트도 쓰지 않던 happy-dom을 뺀 뒤 `npm audit fix`를 했다. `release.yml`은 태그와 `tauri.conf.json` 버전이 다르면 빌드 전에 멈춘다. README에 "버전과 릴리스"를 적었다.
+- **왜**: 화면 하나에서 렌더 오류가 나면 React가 창 전체를 지웠고, 창 테두리 없이 직접 그린 타이틀바의 닫기 버튼까지 사라졌다. 평소 푸시에는 검사가 돌지 않아 이식하다 깨진 것을 늦게 알았다. 버전과 태그 규칙이 없어 어느 버전을 쓰는지 알 수 없었다. 판단과 다른 선택지는 TOEFLER WORKLOG(2026-11-02)에 있다.
+- **어떻게 확인했는가**: `npm audit` 고위험 3건(vite 8.3.1, undici 8.11.2 등) → 0건(vite 8.3.5, undici 8.12.3, happy-dom과 그것만 쓰던 9개 패키지 제거). 무료판·Studio 빌드(tsc 포함), `npm test` 193개 통과(공유 App 테스트: Home이 렌더 중 실패해도 오류 화면이 뜨고 닫기 버튼이 남으며, 사이드바로 가이드를 열면 풀림). Rust 코드는 바뀌지 않았다.
+- **비용**: 공개 저장소라 Actions 분은 무료다.
+
 ### 공통 코어: TOEFLER와 같은 파일 30개를 받고, 앱별 값은 brand로 옮김
 
 - **무엇을 했는가**: TOEFLER의 `core.json`에 있는 공유 파일 30개(`cli.rs`, `backup.rs`, `edition.rs`, 단어장·단어 찾기, 구독, 테마, 설정 화면, `jobStore`, `closeGuard` 등)를 `node scripts/core.mjs sync`로 그대로 받았다. 이 앱만의 값은 `src/lib/brand.ts`와 새 `src-tauri/src/brand.rs`로 옮겼다: 앱 이름 `TOEICER`, DB `toeic.db`, 백업 폴더 `TOEICER 백업`, 저장 키 `toeicer.prefs`, 마켓 slug `toeic`, 대표 테마 `office`, 발음 `en-GB`, 화면 문구 6개, 단어 프롬프트 두 곳. 값은 동기화 전 이 앱의 파일에서 그대로 뽑았으므로 데이터 위치·설정·문구는 바뀌지 않는다.

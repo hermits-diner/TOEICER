@@ -30,7 +30,14 @@
     "src/main.tsx": "c3444de92ee9fcd5e4c65c3ce3553ac34064f7bf435d97cffec6b8e094364838",
     "src/vite-env.d.ts": "8215d1e1014209f88e8a413840edfb7e5b197b2b58c8f5e8ce3295f364293f2a",
     "scripts/build-dict.py": "2d97508253b974f47ee9cf12ba2d66130a496c872b5cbcdf5ac14dbbb224cb66",
-    "scripts/core.mjs": "cec64a846f3564ddfa7fc1c080e34f7f357f8c5679275d36483f25b5295b1026",
-    "scripts/core.test.mjs": "3d3ed7b06bc526105791b655422b2902169ac3228884b44be006bb38dff2e4cd"
+    "scripts/core.mjs": "a8aec1600cff23befcfadadf30a06a419d467886caa725acb11a886be5903877",
+    "scripts/core.test.mjs": "825f5886c5a6be4601a60247f58a9a1232b58efaf78bf157d5f5faf72d9ad760",
+    "src/components/PageBoundary.tsx": "97eceabfbc386d75acb62100fbc4c9913c56004dbcdb781d7e7efc8714b9d2d4",
+    "src/components/PageBoundary.test.tsx": "e76acd3d2b21b8a233b9c10f83ccd51a50d91821a77badfd178b6aa918efc0b5",
+    "scripts/sync-version.mjs": "4a3bf02fa9a66c30414c465a81bdaa62571a7e9f4e12f71deb57f6b1672bdc2d",
+    "scripts/sync-version.test.mjs": "4c0d5a296ca5add31116cc2285439e2befb1a0c497a952664528915158817dca",
+    ".github/workflows/ci.yml": "996270651f8444e945230f36611b31a1a973206aa9ef26d8446ab1d3f4f3c8b1",
+    ".github/workflows/ci-rust.yml": "67ebd1dfac9499efbf1de06307c299f925984560561983b5e915aa3689bc17d9",
+    "src/App.test.tsx": "3a65e51f391f84cdc756e129f5693ddc65be985aa519199bb9cc3aca4febcd54"
   }
 }

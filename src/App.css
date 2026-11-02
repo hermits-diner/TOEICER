@@ -324,6 +324,7 @@ body,
 
 .muted { color: var(--text-secondary); font-size: 12px; }
 .error { color: #ff3b30; font-size: 13px; margin: 6px 0; }
+.page-error { margin: 0 0 14px; padding: 10px 12px; max-height: 200px; overflow: auto; border-radius: 8px; border: 1px solid var(--separator); background: var(--hover); font-size: 12px; white-space: pre-wrap; word-break: break-word; }
 .success { color: #34c759; font-size: 13px; margin: 6px 0; }
 .warning { color: #ff9f0a; font-size: 13px; margin: 6px 0; }
 

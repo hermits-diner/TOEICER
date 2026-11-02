@@ -23,6 +23,18 @@ jobs:
           node-version: 24
           cache: npm
 
+      # The release takes the tag's name, but the installers and the backups report tauri.conf.json's version.
+      # `npm version` keeps the two together; a tag made any other way stops here.
+      - name: Check the tag names the app version
+        if: github.ref_type == 'tag'
+        shell: bash
+        run: |
+          app="v$(node -p "require('./src-tauri/tauri.conf.json').version")"
+          if [ "$GITHUB_REF_NAME" != "$app" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME, but tauri.conf.json says $app. Make releases with npm version."
+            exit 1
+          fi
+
       - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2

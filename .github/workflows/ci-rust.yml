@@ -1,0 +1,39 @@
+# The Rust tests, on Windows like the shipped app (cli.rs and lib.rs have Windows-only code). Runs only when the
+# backend changes: in a private repo Windows minutes count double. The frontend is checked in ci.yml.
+name: CI (Rust)
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - "src-tauri/**"
+      - ".github/workflows/ci-rust.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ci-rust-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  rust:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          workspaces: src-tauri
+
+      # tauri::generate_context! embeds ../dist when the crate compiles. The tests never load the page, so a stub
+      # stands in for the real bundle and this job needs no Node.
+      - name: Stub the frontend bundle
+        shell: bash
+        run: mkdir -p dist && echo '<!doctype html><title>app</title>' > dist/index.html
+
+      - run: cargo test --locked
+        working-directory: src-tauri

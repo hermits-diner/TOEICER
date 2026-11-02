@@ -67,6 +67,12 @@ npm test
 
 필요한 것: Node.js 20 이상, Rust 1.77 이상, WebView2 런타임, Visual Studio Build Tools(C++).
 
+### 버전과 릴리스
+- 버전은 SemVer(`주.부.수`)이고 기준은 `package.json`입니다. 0.x 동안은 기능이 늘면 부 번호, 고치기만 했으면 수 번호를 올립니다.
+- 올릴 때는 깨끗한 main에서 `npm version <새 버전> -m "Release v%s"` 한 번이면 됩니다. `scripts/sync-version.mjs`가 `tauri.conf.json`·`Cargo.toml`·`Cargo.lock`을 같은 번호로 고치고, npm이 커밋과 `v<새 버전>` 태그를 만듭니다.
+- `git push origin main --follow-tags`로 올리면 `release.yml`이 두 판을 빌드합니다. 태그와 앱 버전이 다르면 빌드 전에 멈춥니다.
+- 버전을 손으로 고치지 마십시오. 네 파일이 어긋나면 `npm test`가 실패합니다.
+
 ## 데이터 위치
 - 데이터베이스: `%APPDATA%\com.toeicer.app\toeic.db` (Studio는 `com.toeicer.studio`)
 - 음성·사진: 같은 폴더의 `raw` / API 키: Windows 자격 증명 관리자
