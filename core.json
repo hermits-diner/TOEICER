@@ -42,8 +42,8 @@
     "src/App.test.tsx": "3a65e51f391f84cdc756e129f5693ddc65be985aa519199bb9cc3aca4febcd54",
     "src/lib/updates.ts": "7241617ee58606dcfb6d43b184b471a301a6b3758d017e4575e1db34a768a322",
     "src/lib/updates.test.ts": "2628f94f53b0a56e2adcc0e6d0464113a183201c7cf30d7db4461b2168578888",
-    "src/components/UpdateBanner.tsx": "4205f00da3b1e5bd9483c85324a76c2f643765907af6135bf0aba01caceea8af",
-    "src/components/UpdateBanner.test.tsx": "fc33452005ac1271fc45fd579c7c8b59d0841901733e4cfeb5219ecb21f6b311",
+    "src/components/UpdateBanner.tsx": "17417c3b0a0c47eb0c9435d6c8aace1223423352d12a177cffa6442ce6e0a783",
+    "src/components/UpdateBanner.test.tsx": "7440cbf257ba5c5564835327650f15fb3c8bbf3d9799dcae217d343b0215b9bb",
     "scripts/publish-update.mjs": "a29366e65820f2e62805171b5e7651abe41aa00a758f0943223f6c3bb701dd4c",
     "scripts/publish-update.test.mjs": "5cae041bcaa597532cec421cd5ed70932a4ae196a6cbf72f49b40dc6fcb893a7",
     "src-tauri/tauri.release.conf.json": "ca47b66a4879e955ed2cbe38aba72390dad1fa5edb203d6e06c61cf1156da36f"

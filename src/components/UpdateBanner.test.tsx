@@ -62,6 +62,12 @@ describe("UpdateBanner", () => {
     expect(update.install).toHaveBeenCalledTimes(1);
   });
 
+  it("names the versions without a particle after the number (0.2.2이 would be wrong, 0.2.1가 too)", async () => {
+    check.mockResolvedValue({ ...fakeUpdate(), version: "0.2.2", currentVersion: "0.2.1" });
+    await render();
+    expect(banner()?.querySelector("p")?.textContent).toBe("새 버전이 나왔습니다 (0.2.2). 지금 쓰는 버전은 0.2.1입니다.");
+  });
+
   it("shows the download's progress and keeps the buttons off meanwhile", async () => {
     let finish!: () => void;
     const update = fakeUpdate(async (onEvent) => {

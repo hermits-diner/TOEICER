@@ -42,7 +42,8 @@ export default function UpdateBanner() {
   return (
     <div className="update-banner" role="status">
       <p>
-        <b>새 버전 {update.version}</b>이 나왔습니다. 지금 쓰는 버전은 {update.currentVersion}입니다.
+        {/* No particle right after a number: 0.2.1이 but 0.2.2가, so the version goes in brackets. */}
+        <b>새 버전이 나왔습니다</b> ({update.version}). 지금 쓰는 버전은 {update.currentVersion}입니다.
       </p>
       {installing && <p className="sub">내려받는 중{percent === null ? "…" : ` ${percent}%`}</p>}
       {error && <p className="error">{error}</p>}
