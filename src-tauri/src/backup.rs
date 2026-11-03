@@ -276,9 +276,14 @@ fn write_zip(
 #[tauri::command]
 pub async fn restore_prepare(app: AppHandle, source: String) -> Result<String, String> {
     let staging = data_dir(&app)?.join(STAGING);
-    tauri::async_runtime::spawn_blocking(move || prepare(&PathBuf::from(source), &staging))
+    let staged = tauri::async_runtime::spawn_blocking(move || prepare(&PathBuf::from(source), &staging))
         .await
-        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())??;
+    // A backup from a build whose migrations had LF line endings would otherwise be refused as another app's.
+    if let Err(e) = crate::checksums::repair(Path::new(&staged)).await {
+        eprintln!("could not repair the backup's migration checksums: {e}");
+    }
+    Ok(staged)
 }
 
 fn prepare(src: &Path, staging: &Path) -> Result<String, String> {

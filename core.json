@@ -3,7 +3,8 @@
   "source": "hermits-diner/TOEFLER",
   "files": {
     "src-tauri/src/cli.rs": "7a2bff7c28bb07b433ee96c9ee1a9cddf0480a60dc2136b83ff9cd6ce4135a2d",
-    "src-tauri/src/backup.rs": "ffca4f29c3f03590235d440e0777e38cce3b73621e2a88e9f6992a08c03ea84f",
+    "src-tauri/src/backup.rs": "6643942ba1f44f3f2fd51d29c0003929222566fc124cfca072ac7ed73e254e19",
+    "src-tauri/src/checksums.rs": "ea7491e88b567dfbbfecaddd1170bf890509e00411f3ba38e605db3c3ff1ed66",
     "src-tauri/src/edition.rs": "d8476bcd4285243a38f9fd32af51375df65839ead0d5dfb9eb6aff2236672106",
     "src/components/VocabBook.tsx": "cc46c8798c107537ae04c3852f8cf54798abb28fc8c217583866501c0e1e9f82",
     "src/components/WordLookup.tsx": "8a21e0ac598778dc8e0264d560fdeacd882f1c117c1397e70d8fd424c5398d71",

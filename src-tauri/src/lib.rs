@@ -1,6 +1,7 @@
 mod ai;
 mod backup;
 mod brand;
+mod checksums;
 mod cli;
 mod edition;
 mod media;
@@ -151,6 +152,14 @@ pub fn run() {
             // Swap in a restored database before the webview gets a chance to open the current one.
             if let Err(e) = backup::apply_pending_restore(app.handle()) {
                 eprintln!("restore failed: {e}");
+            }
+            // A database made by a build with LF migrations would be refused; make its records this build's.
+            checksums::pin(&migrations());
+            if let Ok(dir) = app.path().app_config_dir() {
+                let db = dir.join(DB_URL.trim_start_matches("sqlite:"));
+                if let Err(e) = tauri::async_runtime::block_on(checksums::repair(&db)) {
+                    eprintln!("could not repair the migration checksums: {e}");
+                }
             }
             #[cfg(windows)]
             {

@@ -2,6 +2,12 @@
 
 ## 2026-11-03
 
+### LF로 기록된 마이그레이션 체크섬을 시작할 때 고침 (TOEFLER d47e59b에서, 공유 파일 `checksums.rs`)
+
+- **무엇을 발견했는가**: TOEFLER에서 복사한 폴더(LF)로 만든 빌드의 DB에는 마이그레이션 체크섬이 LF로 기록됐다. 이 앱도 SQL을 CRLF로 고정하므로, 그런 DB를 sqlx가 열지 않는다("migration … has been modified"). 그 빌드의 백업도 "다른 앱의 백업"으로 복원이 거절된다.
+- **무엇을 했는가**: `core.mjs sync`로 `checksums.rs`와 바뀐 `backup.rs`(복원하려고 풀어 둔 DB도 고침)를 받았다. `lib.rs` `setup`에서 웹뷰가 DB를 열기 전에 `checksums::pin`·`repair`를 부르고, `Cargo.toml`에 플러그인과 같은 `sqlx 0.8`을 넣었다. 기록된 값이 "줄바꿈만 반대인 같은 SQL"일 때만 이 빌드의 값으로 바꾸고, 그 밖의 불일치는 그대로 거절된다.
+- **어떻게 확인했는가**: vitest 41파일 210개, cargo test 42개 통과(새 테스트 3개 포함), `tsc --noEmit` 통과. 실제 LF DB로 띄워 고쳐지는 것은 TOEFLER에서 확인했다.
+
 ### 마켓 자동 업데이트를 받음 (형제 앱 TOEFLER에서 실제 업데이트까지 확인한 것)
 
 - **무엇을 했는가**: TOEFLER v0.2.1에서 설치된 0.1.0이 마켓에서 스스로 업데이트되는 것을 확인한 뒤 옮겼다.
