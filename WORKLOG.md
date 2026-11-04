@@ -1,5 +1,18 @@
 # WORKLOG
 
+## 2026-11-05
+
+### Studio: LC 세트 하나와 RC 세트 하나를 모의고사 한 부로 내보내기
+
+- **무엇을 발견했는가**: 마켓(모두의 영어시험)은 이제 운영자가 만든 "모의고사 한 부"만 판다(TOEIC은 LC와 RC가 모두 든 파일). 그런데 이 앱은 LC 세트나 RC 세트를 하나씩 `test.json`으로만 내보냈다. 마켓의 업로드 검사도 LC 하나만 든 파일을 "빠진 영역: Reading"으로 거절한다.
+- **무엇을 했는가**
+  - `package.rs`: `write_package`와 `package_write` 요청이 `tests: Vec<String>`을 받는다. 하나면 지금처럼 `test.json`, 둘 이상이면 `tests/1.json`, `tests/2.json`으로 쓴다. 빈 목록은 거절한다. 읽기는 원래 `tests/N.json`을 번호 순서로 읽었고 format 3도 받으므로 바꾸지 않았다.
+  - `package.ts`: `exportExam(lcId, rcId, title)`을 더했다. 마켓에서 산 세트는 거절하고, Listening 하나와 Reading 하나여야 한다. manifest는 TOEFLER·IELTS와 같은 모양이다: `exam: {title}`, `tests[]`(영역·순서·제목·문항 수), `questions` 합계. `origin`은 둘 다 ai일 때만 ai이고, 검증 기록은 LC, RC 순으로 이어 붙였다. 출제 경향 확인 시각은 둘 중 오래된 쪽이다.
+  - `TestList.tsx`(Studio에서만): "LC+RC 한 부로 내보내기" 버튼이 Listening·Reading 세트와 제목(기본 "TOEIC 모의고사 날짜")을 고르는 작은 칸을 연다.
+  - 이 파일들은 공유 파일(`core.json`)이 아니라 이 앱에만 넣었다.
+- **어떻게 확인했는가**: vitest 41파일 213개(새 테스트 2개), `tsc --noEmit`, `npm run build:studio`, cargo test 43개(새 `two_tests_round_trip_in_order` 포함) 통과. 받는 쪽은 `readPackage`·`importOpened`가 이미 여러 세트를 하나씩 저장하므로, 이 파일을 열면 LC와 RC 두 세트가 라이브러리에 들어간다. `exportExam`이 실제로 만드는 manifest를 캡처해 exam-market의 테스트 고정 데이터로 옮겼고, 마켓 검사가 받아들이는 것을 거기서 확인했다.
+- **하지 않은 것**: 실제 Studio 화면에서 저장해 보기(설치 판은 다음 릴리스부터). 화면 확인은 다음 릴리스 때 한다.
+
 ## 2026-11-04
 
 ### 업데이트 알림 문구의 조사 고침 (공유 파일, 형제 앱 TOEFLER에서 받음)

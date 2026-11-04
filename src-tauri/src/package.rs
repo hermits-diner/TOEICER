@@ -1,5 +1,6 @@
-//! Set files (.toic): a zip holding manifest.json, test.json (the import form of one Listening or Reading set) and
-//! media/<archive name> for its recordings and Part 1 photographs. Media keep the archive's content-hash names, so a
+//! Set files (.toic): a zip holding manifest.json, test.json (the import form of one Listening or Reading set) — or
+//! tests/1.json, tests/2.json for a whole mock test (one LC and one RC set) — and media/<archive name> for their
+//! recordings and Part 1 photographs. Media keep the archive's content-hash names, so a
 //! set imported on another PC lands under the same names and the same file is never stored twice. On import, every
 //! media file's hash is checked against its name, so a file cannot plant different bytes under an existing name.
 //! Files from earlier versions (.toeicset, format 1 or 2) still open; their tests/N.json are read in order.
@@ -25,8 +26,8 @@ const MAX_ENTRIES: usize = 300;
 pub struct WriteRequest {
     dest: String,
     manifest: Value,
-    /// The test, already serialized by the app.
-    test: String,
+    /// The tests, already serialized by the app: one set, or the sections of a whole mock test in order.
+    tests: Vec<String>,
     /// Archive names of the recordings and pictures the test refers to.
     media: Vec<String>,
 }
@@ -42,9 +43,12 @@ pub struct ReadResult {
 }
 
 /// Writes the set file; returns its size in bytes.
-pub(crate) fn write_package(raw: &Path, dest: &Path, manifest: &Value, test: &str, media: &[String]) -> Result<u64, String> {
+pub(crate) fn write_package(raw: &Path, dest: &Path, manifest: &Value, tests: &[String], media: &[String]) -> Result<u64, String> {
     let w = |e: zip::result::ZipError| format!("세트 파일을 쓰지 못했습니다: {e}");
     let io = |e: std::io::Error| format!("세트 파일을 쓰지 못했습니다: {e}");
+    if tests.is_empty() {
+        return Err("세트 파일에 넣을 시험 내용이 없습니다.".into());
+    }
     for name in media {
         if parse_media_name(name).is_none() {
             return Err(format!("보관된 파일 이름이 아닙니다: {name}"));
@@ -61,8 +65,15 @@ pub(crate) fn write_package(raw: &Path, dest: &Path, manifest: &Value, test: &st
     let stored = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
     zip.start_file("manifest.json", deflate).map_err(w)?;
     zip.write_all(serde_json::to_string_pretty(manifest).map_err(|e| e.to_string())?.as_bytes()).map_err(io)?;
-    zip.start_file("test.json", deflate).map_err(w)?;
-    zip.write_all(test.as_bytes()).map_err(io)?;
+    if let [one] = tests {
+        zip.start_file("test.json", deflate).map_err(w)?;
+        zip.write_all(one.as_bytes()).map_err(io)?;
+    } else {
+        for (i, t) in tests.iter().enumerate() {
+            zip.start_file(format!("tests/{}.json", i + 1), deflate).map_err(w)?;
+            zip.write_all(t.as_bytes()).map_err(io)?;
+        }
+    }
     for name in media {
         zip.start_file(format!("media/{name}"), stored).map_err(w)?;
         zip.write_all(&fs::read(raw.join(name)).map_err(io)?).map_err(io)?;
@@ -155,7 +166,7 @@ pub async fn write_text(dest: String, text: String) -> Result<(), String> {
 #[tauri::command]
 pub async fn package_write(app: AppHandle, req: WriteRequest) -> Result<u64, String> {
     let raw = raw_dir(&app)?;
-    tauri::async_runtime::spawn_blocking(move || write_package(&raw, Path::new(&req.dest), &req.manifest, &req.test, &req.media))
+    tauri::async_runtime::spawn_blocking(move || write_package(&raw, Path::new(&req.dest), &req.manifest, &req.tests, &req.media))
         .await
         .map_err(|e| e.to_string())?
 }
@@ -181,7 +192,7 @@ mod tests {
 
         let dest = dir.join("t.toic");
         let test = r#"{"title":"T"}"#;
-        let size = write_package(&raw, &dest, &serde_json::json!({ "format": 3, "title": "T" }), test, &[name.clone()]).unwrap();
+        let size = write_package(&raw, &dest, &serde_json::json!({ "format": 3, "title": "T" }), &[test.to_string()], &[name.clone()]).unwrap();
         assert!(size > 0 && dest.is_file() && !dir.join("t.part").exists());
 
         let raw2 = dir.join("raw2");
@@ -203,7 +214,7 @@ mod tests {
             z.finish().unwrap();
         }
         assert!(read_package(&raw2, &bad).unwrap_err().contains("손상"));
-        assert!(write_package(&raw, &dir.join("x.toic"), &serde_json::json!({}), "{}", &["../secret.png".to_string()]).is_err());
+        assert!(write_package(&raw, &dir.join("x.toic"), &serde_json::json!({}), &["{}".to_string()], &["../secret.png".to_string()]).is_err());
         fs::remove_dir_all(&dir).ok();
     }
 
@@ -226,11 +237,27 @@ mod tests {
         }
         assert_eq!(read_package(&raw, &old).unwrap().tests, vec!["{\"n\":1}".to_string(), "{\"n\":2}".to_string()]);
         let future = dir.join("future.toic");
-        write_package(&raw, &future, &serde_json::json!({ "format": 9 }), "{}", &[]).unwrap();
+        write_package(&raw, &future, &serde_json::json!({ "format": 9 }), &["{}".to_string()], &[]).unwrap();
         assert!(read_package(&raw, &future).unwrap_err().contains("업데이트"));
         let not_zip = dir.join("plain.toic");
         fs::write(&not_zip, b"not a zip").unwrap();
         assert!(read_package(&raw, &not_zip).unwrap_err().contains("세트 파일이 아닙니다"));
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn two_tests_round_trip_in_order() {
+        let dir = std::env::temp_dir().join(format!("toeicer-pkg-exam-{}", std::process::id()));
+        let raw = dir.join("raw");
+        fs::create_dir_all(&raw).unwrap();
+        let dest = dir.join("exam.toic");
+        let tests = [r#"{"kind":"listening"}"#.to_string(), r#"{"kind":"reading"}"#.to_string()];
+        write_package(&raw, &dest, &serde_json::json!({ "format": 3, "exam": { "title": "E" } }), &tests, &[]).unwrap();
+        let mut zip = zip::ZipArchive::new(fs::File::open(&dest).unwrap()).unwrap();
+        let names: Vec<String> = (0..zip.len()).map(|i| zip.by_index(i).unwrap().name().to_string()).collect();
+        assert_eq!(names, ["manifest.json", "tests/1.json", "tests/2.json"]);
+        assert_eq!(read_package(&raw, &dest).unwrap().tests, tests.to_vec());
+        assert!(write_package(&raw, &dir.join("none.toic"), &serde_json::json!({}), &[], &[]).is_err());
         fs::remove_dir_all(&dir).ok();
     }
 }

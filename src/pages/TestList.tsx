@@ -6,9 +6,9 @@ import { draftBadge, RESUME_LABEL, savedAgo } from "../lib/draft";
 import { draftWritesIdle } from "../lib/draftQueue";
 import { STUDIO } from "../lib/edition";
 import { EMPTY_FILTER, filterChoices, filterTests, genMetaLine, isFiltering, KIND_LABEL, ORIGIN_LABEL, type LibraryFilter } from "../lib/library";
-import { exportTest, testToImport } from "../lib/package";
+import { defaultExamTitle, exportExam, exportTest, testToImport } from "../lib/package";
 import { deleteTest, listTests, loadTest, saveEditedTest } from "../lib/repo";
-import type { ImportTest, Origin, TestDetail, TestSummary } from "../lib/types";
+import type { ImportTest, Origin, TestDetail, TestKind, TestSummary } from "../lib/types";
 
 // Studio-only: the editor is left out of a Reader build.
 const SetEditor = __STUDIO__ ? lazy(() => import("../components/SetEditor")) : null;
@@ -34,6 +34,62 @@ interface Props {
   origin?: Origin;
 }
 
+/** Studio: picks one Listening set and one Reading set and saves them as one mock test file (what the market sells). */
+function ExamExport({ tests, onDone, onError }: { tests: TestSummary[]; onDone: (dest: string) => void; onError: (e: string) => void }) {
+  const pick = (k: TestKind) => tests.filter((t) => t.kind === k && t.origin !== "market");
+  const lcs = pick("listening");
+  const rcs = pick("reading");
+  const [lc, setLc] = useState<number | null>(lcs[0]?.id ?? null);
+  const [rc, setRc] = useState<number | null>(rcs[0]?.id ?? null);
+  const [name, setName] = useState(defaultExamTitle());
+  const [busy, setBusy] = useState(false);
+  if (!lcs.length || !rcs.length) return <p className="muted">Listening 세트와 Reading 세트가 하나씩 있어야 한 부로 내보낼 수 있습니다.</p>;
+  const save = async () => {
+    if (lc === null || rc === null) return;
+    setBusy(true);
+    try {
+      const dest = await exportExam(lc, rc, name);
+      if (dest) onDone(dest);
+    } catch (e) {
+      onError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="card exam-export" style={{ display: "grid", gap: 8, maxWidth: 560, marginBottom: 12 }}>
+      <p className="muted">Listening 세트 하나와 Reading 세트 하나를 모의고사 한 부(.toic 파일 하나)로 저장합니다.</p>
+      <label>
+        Listening
+        <select value={lc ?? ""} onChange={(e) => setLc(Number(e.target.value))}>
+          {lcs.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.title}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        Reading
+        <select value={rc ?? ""} onChange={(e) => setRc(Number(e.target.value))}>
+          {rcs.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.title}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        제목
+        <input value={name} maxLength={80} onChange={(e) => setName(e.target.value)} />
+      </label>
+      <button className="btn primary" disabled={busy} onClick={() => void save()}>
+        한 부로 저장
+      </button>
+    </div>
+  );
+}
+
 export default function TestList({ title, onOpen, onImport, origin }: Props) {
   const [tests, setTests] = useState<TestSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -41,6 +97,7 @@ export default function TestList({ title, onOpen, onImport, origin }: Props) {
   const [notice, setNotice] = useState<string | null>(null);
   const [editing, setEditing] = useState<{ detail: TestDetail; test: ImportTest } | null>(null);
   const [saving, setSaving] = useState(false);
+  const [examOpen, setExamOpen] = useState(false);
   const [filter, setFilter] = useState<LibraryFilter>({ ...EMPTY_FILTER, origin: origin ?? "all" });
   const choices = useMemo(() => filterChoices(tests ?? []), [tests]);
   const shown = useMemo(() => (tests ? filterTests(tests, filter) : null), [tests, filter]);
@@ -118,10 +175,27 @@ export default function TestList({ title, onOpen, onImport, origin }: Props) {
           {title}
           <span className="h-count">{tests ? `${filtering && shown ? `${shown.length} / ` : ""}${tests.length}` : "…"}</span>
         </h1>
-        <button className="btn primary" onClick={onImport}>
-          {STUDIO ? <Sparkles size={14} /> : <FolderOpen size={14} />} {STUDIO ? "새 세트 만들기" : "세트 파일 열기"}
-        </button>
+        <div style={{ display: "flex", gap: 8 }}>
+          {STUDIO && tests && tests.length > 0 && (
+            <button className="btn" onClick={() => setExamOpen(!examOpen)}>
+              <Share2 size={14} /> LC+RC 한 부로 내보내기
+            </button>
+          )}
+          <button className="btn primary" onClick={onImport}>
+            {STUDIO ? <Sparkles size={14} /> : <FolderOpen size={14} />} {STUDIO ? "새 세트 만들기" : "세트 파일 열기"}
+          </button>
+        </div>
       </div>
+      {STUDIO && examOpen && tests && (
+        <ExamExport
+          tests={tests}
+          onDone={(dest) => {
+            setExamOpen(false);
+            setNotice(`저장했습니다: ${dest}`);
+          }}
+          onError={setError}
+        />
+      )}
       {error && <p className="error">{error}</p>}
       {tests && tests.length > 0 && (
         <div className="lib-filter">

@@ -1,6 +1,8 @@
 /**
  * Set files (.toic): one Listening or Reading set as a zip of manifest.json, test.json (the import form, see
- * importFormat.ts) and media/ with its recordings and Part 1 photographs under their archive names. The manifest says
+ * importFormat.ts) and media/ with its recordings and Part 1 photographs under their archive names — or, for a whole
+ * mock test (Studio's "LC+RC 한 부로 내보내기"), one LC set and one RC set as tests/1.json and tests/2.json with `exam`
+ * and `tests[]` in the manifest, the shape TOEFLER and IELTS_Practice write. The manifest says
  * where the set came from and, for an AI-written set, how it was checked, so a market can list only AI originals and
  * show their verification record. The Rust side (package.rs) checks every media file's hash against its name on
  * import. Files from earlier versions (.toeicset) still open.
@@ -45,6 +47,10 @@ export interface Manifest {
   market?: MarketRecord;
   author: string;
   license: string;
+  /** A whole mock test: its title. Absent for a single set. */
+  exam?: { title: string };
+  /** A whole mock test: its sections in file order. */
+  tests?: { skill: TestKind; ord: number; title: string; questions: number }[];
 }
 
 const countQuestions = (t: ImportTest) => t.passages.reduce((n, p) => n + p.groups.reduce((m, g) => m + g.questions.length, 0), 0);
@@ -106,7 +112,42 @@ export async function exportTest(id: number): Promise<string | null> {
   const manifest = await buildManifest(t, detail.origin, (await loadGenMeta(id))?.options);
   const dest = await save({ defaultPath: `${safeName(t.title)}.${PACKAGE_EXT}`, filters: [{ name: `${BRAND.appName} 문제 세트`, extensions: [PACKAGE_EXT] }] });
   if (!dest) return null;
-  await invoke<number>("package_write", { req: { dest, manifest, test: JSON.stringify(t), media: mediaOf(t) } });
+  await invoke<number>("package_write", { req: { dest, manifest, tests: [JSON.stringify(t)], media: mediaOf(t) } });
+  return dest;
+}
+
+const asList = (v: unknown): unknown[] => (Array.isArray(v) ? v : v == null ? [] : [v]);
+
+/** The default title of a whole mock test: "TOEIC 모의고사 2026-11-05". */
+export const defaultExamTitle = (now = new Date()) => `TOEIC 모의고사 ${now.toLocaleDateString("sv-SE")}`;
+
+/**
+ * Writes one Listening set and one Reading set as a single mock test file (Studio), which is what the market sells for
+ * TOEIC. The origin is "ai" only when both sets are; the verification records are joined, LC first. Null when cancelled.
+ */
+export async function exportExam(lcId: number, rcId: number, title: string): Promise<string | null> {
+  const ids = [lcId, rcId];
+  const details = await Promise.all(ids.map((id) => loadTest(id)));
+  if (details.some((d) => d.origin === "market")) throw new Error("마켓에서 산 세트는 파일로 내보낼 수 없습니다.");
+  const [lc, rc] = await Promise.all(ids.map((id) => testToImport(id)));
+  if (lc.kind !== "listening" || rc.kind !== "reading") throw new Error("Listening 세트 하나와 Reading 세트 하나를 골라 주십시오.");
+  const gens = await Promise.all(ids.map(async (id) => (await loadGenMeta(id))?.options));
+  const name = title.trim() || defaultExamTitle();
+  const origin = details.find((d) => d.origin !== "ai")?.origin ?? "ai";
+  const checked = gens.map((g) => g?.trendCheckedAt).filter((x): x is string => typeof x === "string").sort();
+  const manifest: Manifest = {
+    ...(await buildManifest(lc, origin, gens[0])),
+    title: name,
+    exam: { title: name },
+    tests: [lc, rc].map((t, i) => ({ skill: t.kind, ord: i, title: t.title, questions: countQuestions(t) })),
+    questions: countQuestions(lc) + countQuestions(rc),
+    verification: [...asList(gens[0]?.verification), ...asList(gens[1]?.verification)],
+    trendCheckedAt: checked[0] ?? null,
+  };
+  const dest = await save({ defaultPath: `${safeName(name)}.${PACKAGE_EXT}`, filters: [{ name: `${BRAND.appName} 문제 세트`, extensions: [PACKAGE_EXT] }] });
+  if (!dest) return null;
+  const media = [...new Set([...mediaOf(lc), ...mediaOf(rc)])];
+  await invoke<number>("package_write", { req: { dest, manifest, tests: [JSON.stringify(lc), JSON.stringify(rc)], media } });
   return dest;
 }
 
