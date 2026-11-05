@@ -39,7 +39,7 @@ function deferred<T>() {
 const ALL: ToeicUnit[] = ["p12", "p3", "p4", "p56", "p7s", "p7m"];
 const settings = { provider: "claude-cli", models: { "claude-cli": "opus" } } as never;
 const req = (units: ToeicUnit[] = ALL, geminiKey = false) => ({ settings, units, target: "750" as const, topics: "", useRefs: false, geminiKey });
-const set = (kind: "listening" | "reading") => ({ title: `AI · TOEIC ${kind}`, kind, passages: [] });
+const set = (kind: "listening" | "reading") => ({ title: `TOEIC ${kind}`, kind, passages: [] });
 const report = (unit: ToeicUnit) => ({ unit, writer: "claude-cli", checker: "claude-cli", cross: false, total: 0, agreed: 0, flagged: [], proofed: 0, rekeyed: 0, refilled: [], dropped: [], notes: [] });
 const fullTest = { tests: [set("listening"), set("reading")], reports: ALL.map(report) };
 

@@ -1258,7 +1258,7 @@ export async function generateToeic(
   const stamp = new Date().toISOString().slice(0, 16).replace("T", " ");
   const tests: ImportTest[] = [];
   if (drafts.p12 || drafts.p3 || drafts.p4) {
-    const { test, audio, images } = listeningTest(drafts, `AI · TOEIC Listening ${stamp}`);
+    const { test, audio, images } = listeningTest(drafts, `TOEIC Listening ${stamp}`);
     if (!o.images) {
       // Without photographs the scene is described in words, so Part 1 can still be practised.
       for (const job of images) {
@@ -1283,6 +1283,6 @@ export async function generateToeic(
     }
     tests.push(test);
   }
-  if (drafts.p56 || drafts.p7s || drafts.p7m) tests.push(readingTest(drafts, `AI · TOEIC Reading ${stamp}`));
+  if (drafts.p56 || drafts.p7s || drafts.p7m) tests.push(readingTest(drafts, `TOEIC Reading ${stamp}`));
   return { tests, reports };
 }

@@ -41,7 +41,9 @@ export default function Import({ onImported, openPath, showAiTab, onAiTabShown }
     return (
       <div className="content">
         <h1>세트 파일 열기</h1>
-        <PackageImport onImported={onImported} path={openPath} />
+        <div className="make-body">
+          <PackageImport onImported={onImported} path={openPath} />
+        </div>
       </div>
     );
 
@@ -60,12 +62,12 @@ export default function Import({ onImported, openPath, showAiTab, onAiTabShown }
         </button>
       </div>
       {shown.includes("file") && (
-        <div hidden={tab !== "file"}>
+        <div className="make-body" hidden={tab !== "file"}>
           <PackageImport onImported={onImported} path={openPath} />
         </div>
       )}
       {(shown.includes("ai") || shown.includes("paste")) && (
-        <div hidden={tab === "file"}>
+        <div className="make-body" hidden={tab === "file"}>
           <Suspense fallback={<p className="muted">불러오는 중…</p>}>
             <StudioMake tab={tab === "paste" ? "paste" : "ai"} shown={shown} onCreated={onImported} />
           </Suspense>

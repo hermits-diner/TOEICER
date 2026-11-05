@@ -684,9 +684,12 @@ body,
 }
 :root[data-font="ebook"] { --font-reading: var(--font-ebook); }
 
-.passage, .questions, .guide-lead, .guide-block, .guide .facts, .notes {
+.passage, .questions, .guide-lead, .guide-block, .guide .facts, .notes, .make-body {
   font-family: var(--font-reading);
 }
+/* 만들기·가져오기 reads like the guide; its buttons and fields stay in the interface font and weight, as on every other screen. */
+.make-body :is(button, input, select, .btn, .field, .dropdown-btn, .dropdown-item) { font-family: var(--font-sans); }
+.make-body :is(.btn, .field, .dropdown-btn, .dropdown-item) { font-weight: 400; }
 :root[data-font="ebook"] .passage { font-size: 16px; line-height: 1.75; }
 :root[data-font="ebook"] .guide-lead { font-size: 15px; }
 :root[data-font="ebook"] .guide-block ul, :root[data-font="ebook"] .notes { font-size: 14.5px; }
@@ -707,7 +710,7 @@ body,
 @media (prefers-color-scheme: dark) {
   :root[data-theme="system"][data-font="ebook"] { --reading-weight: 300; }
 }
-.passage, .questions, .guide-lead, .guide-block, .guide .facts, .notes, .passage-sample {
+.passage, .questions, .guide-lead, .guide-block, .guide .facts, .notes, .passage-sample, .make-body {
   font-weight: var(--reading-weight, 400);
 }
 
