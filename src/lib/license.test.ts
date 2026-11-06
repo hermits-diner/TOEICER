@@ -36,10 +36,10 @@ describe("Studio licence", () => {
   });
   it("accepts only a token the market signed for this app, with a week of grace after the month", async () => {
     const until = "2026-12-01T00:00:00Z";
-    const m = await market({ key: "K", app: BRAND.appName, plan: "월 구독", expiresAt: until });
+    const m = await market({ key: "K", app: BRAND.appCode, plan: "월 구독", expiresAt: until });
     expect(await verifyToken(m.token, m.publicKey)).toMatchObject({ plan: "월 구독" });
     expect(await verifyToken(m.token.replace(/.$/, "A"), m.publicKey)).toBeNull();
-    const other = await market({ key: "K", app: `NOT-${BRAND.appName}`, plan: "월 구독", expiresAt: until });
+    const other = await market({ key: "K", app: `NOT-${BRAND.appCode}`, plan: "월 구독", expiresAt: until });
     expect(await verifyToken(other.token, other.publicKey)).toBeNull();
 
     MARKET.publicKey = m.publicKey;
@@ -47,5 +47,13 @@ describe("Studio licence", () => {
     expect(await licenseState(Date.parse(until) - DAY)).toMatchObject({ state: "active", offline: false });
     expect(await licenseState(Date.parse(until) + 3 * DAY)).toMatchObject({ state: "active", offline: true });
     expect((await licenseState(Date.parse(until) + 8 * DAY)).state).toBe("expired");
+  });
+});
+
+describe("the app's two names", () => {
+  it("tells the market the code it knows the app by, not the name people see", () => {
+    expect(BRAND.appCode).not.toBe(BRAND.appName);
+    expect(BRAND.appCode).not.toMatch(/^modu/);
+    expect(BRAND.appName).toMatch(/^modu/);
   });
 });

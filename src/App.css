@@ -74,7 +74,7 @@
 }
 
 :root[data-theme="office"] {
-  /* "오피스" (TOEICER's own theme): clean office white, charcoal ink, an emerald accent, crisp business radii. */
+  /* "오피스" (moduTOEIC's own theme): clean office white, charcoal ink, an emerald accent, crisp business radii. */
   --sidebar-bg: rgba(236, 240, 238, 0.95);
   --content-bg: rgba(251, 252, 251, 0.98);
   --separator: rgba(31, 42, 46, 0.12);
@@ -1262,7 +1262,7 @@ mark.hl.noted::after { content: "✎"; font-size: 0.7em; vertical-align: super; 
 .practice-bar .segmented.small button { white-space: nowrap; }
 .practice-bar > .muted { white-space: nowrap; }
 
-/* ---------- 오피스: TOEICER typography and ornament (only under that theme) ---------- */
+/* ---------- 오피스: moduTOEIC typography and ornament (only under that theme) ---------- */
 :root[data-theme="office"] {
   --font-display: "Inter", "Segoe UI Variable Display", "Segoe UI", "Malgun Gothic", system-ui, sans-serif;
   --office-ink: #1f2a2e;

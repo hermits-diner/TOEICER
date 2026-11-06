@@ -1,10 +1,10 @@
-# TOEICER
+# moduTOEIC
 
 TOEIC Listening and Reading을 대비하는 Windows 데스크톱 앱입니다. 문제 세트를 실제 시험처럼 듣고 풀고, 채점하고 복습하고, TOEIC 시험지처럼 인쇄합니다. 모든 기록은 내 컴퓨터의 로컬 SQLite에만 쌓입니다.
 
 두 가지 판으로 나옵니다.
 
-| | **TOEICER** (무료) | **TOEICER Studio** (월 구독, 14일 체험) |
+| | **moduTOEIC** (무료) | **moduTOEIC Studio** (월 구독, 14일 체험) |
 |---|---|---|
 | 세트 파일(.toic) 열기·풀기·채점·인쇄·학습 기록 | ✓ | ✓ |
 | AI 오답 해설·단어 풀이 (내 구독 CLI, 선택) | ✓ | ✓ |
@@ -12,7 +12,7 @@ TOEIC Listening and Reading을 대비하는 Windows 데스크톱 앱입니다. �
 | 내 자료(붙여넣기·PDF)를 세트로 변환 | | ✓ |
 | 세트 고치기, Listening 스크립트에 Gemini 음성 입히기, 세트 파일로 내보내기(마켓 판매용) | | ✓ |
 
-[IELTS_Practice](https://github.com/hermits-diner/IELTS_Practice), [TOEFLER](https://github.com/hermits-diner/TOEFLER)와 같은 기반(Tauri 2 + React 19 + TypeScript)에서 출발했고, 디자인 언어는 같되 TOEICER만의 '오피스' 테마(먹색 글씨·에메랄드 포인트·오렌지 강조)와 서류가방 아이콘을 씁니다.
+[IELTS_Practice](https://github.com/hermits-diner/IELTS_Practice), [TOEFLER](https://github.com/hermits-diner/TOEFLER)와 같은 기반(Tauri 2 + React 19 + TypeScript)에서 출발했고, 디자인 언어는 같되 moduTOEIC만의 '오피스' 테마(먹색 글씨·에메랄드 포인트·오렌지 강조)와 서류가방 아이콘을 씁니다.
 
 **사용법 영상**: [docs/media/toeicer-tour.mp4](docs/media/toeicer-tour.mp4) (약 1분 7초 · 무료판: 샘플 → Reading 풀이와 채점 → 시험지 인쇄 → 가이드 · Studio: 무료판 데이터 가져오기 → AI·붙여넣기 → 세트 고치기·내보내기 → 구독) · **인쇄 견본**: [docs/media/toeicer-print-sample.pdf](docs/media/toeicer-print-sample.pdf). 영상을 다시 만드는 방법은 [scripts/tour](scripts/tour/README.md).
 
@@ -37,7 +37,7 @@ TOEIC Listening and Reading을 대비하는 Windows 데스크톱 앱입니다. �
 
 ### 복습
 - 오답 노트(간격 반복), 단어장, 영한 사전 팝업.
-- 세트 파일(.toic)은 탐색기에서 두 번 누르면 앱에서 열립니다. 백업(문서 › TOEICER 백업, OneDrive, USB).
+- 세트 파일(.toic)은 탐색기에서 두 번 누르면 앱에서 열립니다. 백업(문서 › moduTOEIC 백업, OneDrive, USB).
 - 내장 샘플(Listening Part 2–4, Reading Part 5–7)은 처음 실행할 때 라이브러리에 들어갑니다.
 
 ## AI 연결
@@ -55,10 +55,10 @@ Studio의 Listening 음성과 Part 1 사진은 **Gemini API 키**로 만듭니�
 `v*` 태그를 올리면 GitHub Actions가 두 판의 Windows 설치 프로그램을 Releases에 올립니다.
 
 ```powershell
-git clone https://github.com/hermits-diner/TOEICER.git
-cd TOEICER
+git clone https://github.com/hermits-diner/moduTOEIC.git
+cd moduTOEIC
 npm install
-npm run tauri dev                                                  # TOEICER(무료판) 개발 실행
+npm run tauri dev                                                  # moduTOEIC(무료판) 개발 실행
 npm run tauri dev -- --config src-tauri/tauri.studio.conf.json     # Studio 개발 실행
 npm run build:reader:exe                                           # 무료판 설치 프로그램
 npm run build:studio:exe                                           # Studio 설치 프로그램
@@ -76,7 +76,7 @@ npm test
 ### 자동 업데이트
 - 저장소가 비공개라 설치 파일은 GitHub가 아니라 마켓(exam-market의 R2)에서 내려받습니다. `release.yml`이 두 판을 서명해 빌드한 뒤 `scripts/publish-update.mjs`로 올립니다. 설치 파일을 먼저 올리고 판별 `latest.json`을 나중에 올립니다.
 - 설치된 앱은 시작할 때 `https://exam-market.hermitsdiner.workers.dev/updates/toeic/<free|studio>/latest.json`을 확인하고, 새 버전이 있으면 오른쪽 아래에 알립니다. 설치 전에 풀던 답을 저장하고 AI CLI를 끝내며, AI 생성 중에는 설치하지 않습니다. `tauri dev`에서는 확인하지 않습니다.
-- 첫 릴리스가 올라가면 마켓 `/download`의 TOEICER "받기" 버튼이 저절로 켜집니다.
+- 첫 릴리스가 올라가면 마켓 `/download`의 moduTOEIC "받기" 버튼이 저절로 켜집니다.
 - 필요한 GitHub 비밀값: `TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`(업데이트 서명), `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`(R2 업로드). 형제 앱 8개가 같은 키와 같은 값을 쓰지만, 비밀값은 저장소마다 따로 등록합니다.
 - 서명 키(`%USERPROFILE%\.tauri\hermits-exam-apps-updater.key`)는 따로 백업하십시오. 키를 잃으면 이미 설치된 앱에 더는 업데이트를 보낼 수 없습니다. 공개키는 `tauri.conf.json`의 `plugins.updater.pubkey`에 있습니다. 키 비밀번호는 같은 폴더의 `hermits-exam-apps-updater.password.dpapi`에 이 PC의 Windows 계정으로만 풀리게 암호화해 두었습니다(PowerShell `[Security.Cryptography.ProtectedData]::Unprotect`, CurrentUser).
 - 서명은 배포 빌드에서만 합니다(`--config src-tauri/tauri.release.conf.json`). 로컬 빌드(`npm run build:reader:exe`)는 키 없이 됩니다.

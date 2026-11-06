@@ -1,4 +1,4 @@
-"""Writes src-tauri/icons/app-icon.svg, the source for every app and shortcut icon (TOEICER: briefcase).
+"""Writes src-tauri/icons/app-icon.svg, the source for every app and shortcut icon (moduTOEIC: briefcase).
 
 The tile is a superellipse ("squircle", continuous curvature like current macOS icons) rather than a
 rounded rectangle. Regenerate the platform icons afterwards:

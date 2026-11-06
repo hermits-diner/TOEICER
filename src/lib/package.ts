@@ -89,7 +89,7 @@ export async function buildManifest(t: ImportTest, origin: Origin, gen?: Record<
   }
   return {
     format: PACKAGE_FORMAT,
-    app: BRAND.appName,
+    app: BRAND.appCode,
     appVersion,
     edition: EDITION,
     title: t.title,

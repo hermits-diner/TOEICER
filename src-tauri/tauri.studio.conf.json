@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "TOEICER Studio",
+  "productName": "moduTOEIC Studio",
   "identifier": "com.toeicer.studio",
   "build": {
     "beforeDevCommand": "npm run dev:studio",
@@ -10,7 +10,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "TOEICER Studio",
+        "title": "moduTOEIC Studio",
         "width": 1440,
         "height": 920,
         "minWidth": 1100,
@@ -36,11 +36,16 @@
         "ext": [
           "toic"
         ],
-        "name": "TOEICER 문제 세트",
+        "name": "moduTOEIC 문제 세트",
         "description": "TOEIC Listening & Reading 문제 세트",
         "role": "Editor",
         "mimeType": "application/x-toeicer-set"
       }
-    ]
+    ],
+    "windows": {
+      "nsis": {
+        "installerHooks": "windows/hooks-studio.nsh"
+      }
+    }
   }
 }

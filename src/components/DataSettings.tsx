@@ -54,7 +54,7 @@ export default function DataSettings() {
   const backup = () =>
     run(async () => {
       const defaultPath = location ? `${location.path}\\${defaultBackupName()}` : defaultBackupName();
-      const dest = await save({ defaultPath, filters: [{ name: "TOEICER 백업", extensions: ["zip"] }] });
+      const dest = await save({ defaultPath, filters: [{ name: "moduTOEIC 백업", extensions: ["zip"] }] });
       if (!dest) return;
       const info = await createBackupFile(dest);
       setMsg({ kind: "ok", text: `백업 파일을 만들었습니다 (${size(info.bytes)}).`, path: info.path });
@@ -67,7 +67,7 @@ export default function DataSettings() {
 
   const pickFile = () =>
     run(async () => {
-      const source = await open({ multiple: false, filters: [{ name: "TOEICER 백업", extensions: ["zip", "db"] }] });
+      const source = await open({ multiple: false, filters: [{ name: "moduTOEIC 백업", extensions: ["zip", "db"] }] });
       if (typeof source !== "string") return;
       setPreview({ label: source.split(/[\\/]/).pop() ?? source, data: await prepareRestore(source) });
     });
@@ -105,7 +105,7 @@ export default function DataSettings() {
         <div className="backup-where">
           <div className="row-main">
             <div className="row-title backup-path">{location.path}</div>
-            <div className="row-meta">{location.custom ? "직접 고른 폴더" : "기본 위치 (문서 › TOEICER 백업)"} · 자동 백업</div>
+            <div className="row-meta">{location.custom ? "직접 고른 폴더" : "기본 위치 (문서 › moduTOEIC 백업)"} · 자동 백업</div>
           </div>
           <button className="btn ghost" title="폴더 열기" onClick={() => revealItemInDir(location.path).catch(() => {})}>
             <FolderOpen size={14} />
@@ -117,7 +117,7 @@ export default function DataSettings() {
       )}
       <div className="accent-row wrap">
         {oneDrive && (
-          <button className="btn" disabled={busy} onClick={() => void moveTo(`${oneDrive}\\TOEICER 백업`, "OneDrive")}>
+          <button className="btn" disabled={busy} onClick={() => void moveTo(`${oneDrive}\\moduTOEIC 백업`, "OneDrive")}>
             <Cloud size={14} /> OneDrive에 저장
           </button>
         )}

@@ -1,8 +1,10 @@
-// What makes this app TOEICER rather than its siblings built on the same code: the names shown to the user and
+// What makes this app moduTOEIC rather than its siblings built on the same code: the names shown to the user and
 // how scores read.
 
 export const BRAND = {
-  appName: "TOEICER",
+  appName: "moduTOEIC",
+  /** What the market calls this app: the `app` of set files and licence tokens. Set files already made carry it, so it does not change with the name. */
+  appCode: "TOEICER",
   examName: "TOEIC",
   guideLabel: "TOEIC 가이드",
   /** What a section result is called on screen. */
@@ -20,7 +22,7 @@ export const BRAND = {
   /** This app on the market: the subscribe page is /studio/<marketSlug>/subscribe. */
   marketSlug: "toeic",
   /** Listed first in 설정 › 테마 and used until the user picks another; its colours are in App.css. A light theme. */
-  theme: { id: "office", label: "오피스", desc: "TOEICER 기본: 먹색 글씨와 에메랄드 포인트, 오렌지 강조. 깔끔한 업무용 느낌", preview: ["#eef1ef", "#fbfcfb", "#1f2a2e"] },
+  theme: { id: "office", label: "오피스", desc: "moduTOEIC 기본: 먹색 글씨와 에메랄드 포인트, 오렌지 강조. 깔끔한 업무용 느낌", preview: ["#eef1ef", "#fbfcfb", "#1f2a2e"] },
   /** Accent of the voice that reads a word aloud (단어장, 단어 찾기). */
   speechLang: "en-GB",
   /** Wording of the shared screens where the exams differ. */

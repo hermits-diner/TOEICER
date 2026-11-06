@@ -87,7 +87,7 @@ pub(crate) fn write_package(raw: &Path, dest: &Path, manifest: &Value, tests: &[
 pub(crate) fn read_package(raw: &Path, path: &Path) -> Result<ReadResult, String> {
     let bad = |e: zip::result::ZipError| format!("세트 파일을 읽지 못했습니다: {e}");
     let file = fs::File::open(path).map_err(|e| format!("세트 파일을 열 수 없습니다: {e}"))?;
-    let mut zip = zip::ZipArchive::new(file).map_err(|_| "TOEICER 세트 파일이 아닙니다.".to_string())?;
+    let mut zip = zip::ZipArchive::new(file).map_err(|_| "moduTOEIC 세트 파일이 아닙니다.".to_string())?;
     if zip.len() > MAX_ENTRIES {
         return Err("세트 파일 안에 파일이 너무 많습니다.".into());
     }

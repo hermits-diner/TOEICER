@@ -1,4 +1,4 @@
-/* TOEICER's AI generation job on the generic job store (src/lib/jobStore.ts): what one generation does (references,
+/* moduTOEIC's AI generation job on the generic job store (src/lib/jobStore.ts): what one generation does (references,
    trend brief, generateToeic, saving the Listening and the Reading set it made), its step plan and the labels the
    generation page and the sidebar show. Every CLI call of the job carries its id; src-tauri/src/cli.rs keeps the
    processes per job, so a cancel ends the CLI the job is waiting on. */

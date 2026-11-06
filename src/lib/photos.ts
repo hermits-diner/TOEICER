@@ -4,7 +4,7 @@ import listening from "../assets/photos/listening.webp";
 import readingRoom from "../assets/photos/reading-room.webp";
 
 /** Bundled photos, all free under the Unsplash License (checked 2026-10-02); credited in Settings.
-    TOEICER tints them in its own 'office' theme (see App.css). */
+    moduTOEIC tints them in its own 'office' theme (see App.css). */
 export interface Photo {
   src: string;
   caption: string;

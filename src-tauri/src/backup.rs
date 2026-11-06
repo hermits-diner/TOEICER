@@ -24,10 +24,21 @@ fn data_dir(app: &AppHandle) -> Result<PathBuf, String> {
     app.path().app_data_dir().map_err(|e| e.to_string())
 }
 
+/// The folder from before the app had its name becomes the default folder, once, so its backups stay listed. If that
+/// cannot be done, the old folder stays as it is and a new one is made; a backup can still be restored from either.
+fn adopt_old_folder(docs: &Path) {
+    let (old, new) = (docs.join(brand::OLD_BACKUP_FOLDER), docs.join(brand::BACKUP_FOLDER));
+    if old != new && old.is_dir() && !new.exists() {
+        let _ = fs::rename(old, new);
+    }
+}
+
 /// The default backup folder, Documents/<BACKUP_FOLDER>. It is outside the app data folder because the uninstaller's
 /// "애플리케이션 데이터 삭제하기" removes that folder entirely, and the backups must survive it.
 fn default_dir(app: &AppHandle) -> Result<PathBuf, String> {
-    let d = app.path().document_dir().map_err(|e| e.to_string())?.join(brand::BACKUP_FOLDER);
+    let docs = app.path().document_dir().map_err(|e| e.to_string())?;
+    adopt_old_folder(&docs);
+    let d = docs.join(brand::BACKUP_FOLDER);
     fs::create_dir_all(&d).map_err(|e| format!("백업 폴더를 만들 수 없습니다: {e}"))?;
     // Move copies made by earlier versions, which kept them inside the app data folder.
     let old = data_dir(app)?.join("backups");
@@ -397,6 +408,25 @@ mod tests {
             [b"SQLite format 3\0".as_slice(), tag.as_bytes()].concat(),
         )
         .unwrap();
+    }
+
+    #[test]
+    fn the_old_backup_folder_moves_to_the_new_name_once() {
+        let docs = std::env::temp_dir().join(format!("{}-adopt-{}", brand::PREFIX, std::process::id()));
+        let (old, new) = (docs.join(brand::OLD_BACKUP_FOLDER), docs.join(brand::BACKUP_FOLDER));
+        fs::create_dir_all(&old).unwrap();
+        fs::write(old.join("auto-2026-11-05.db"), b"kept").unwrap();
+        adopt_old_folder(&docs);
+        assert_eq!(fs::read(new.join("auto-2026-11-05.db")).unwrap(), b"kept");
+        assert!(!old.exists());
+
+        // A folder under the new name is never overwritten: the old one just stays.
+        fs::create_dir_all(&old).unwrap();
+        fs::write(old.join("older.db"), b"old").unwrap();
+        adopt_old_folder(&docs);
+        assert_eq!(fs::read(old.join("older.db")).unwrap(), b"old");
+        assert!(new.join("auto-2026-11-05.db").exists());
+        fs::remove_dir_all(&docs).ok();
     }
 
     #[test]

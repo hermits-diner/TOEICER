@@ -180,7 +180,7 @@ export type SignIn =
  */
 export async function signIn(email: string, password: string, opts: { purchase?: string; removeDeviceId?: number } = {}): Promise<SignIn> {
   const device = await invoke<{ id: string; name: string }>("market_device");
-  const r = await post("/devices/register", { email, password, app: BRAND.appName, deviceId: device.id, deviceName: device.name, ...opts });
+  const r = await post("/devices/register", { email, password, app: BRAND.appCode, deviceId: device.id, deviceName: device.name, ...opts });
   if (r.status === 200 && typeof r.body.token === "string") {
     const account = String(r.body.email ?? email).trim().toLowerCase();
     await secretSet(await tokenName(account), r.body.token);

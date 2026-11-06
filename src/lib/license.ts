@@ -43,7 +43,7 @@ export async function verifyToken(token: string, publicKey = MARKET.publicKey): 
     const ok = await crypto.subtle.verify({ name: "ECDSA", hash: "SHA-256" }, key, b64(sig), new TextEncoder().encode(payload));
     if (!ok) return null;
     const t = JSON.parse(new TextDecoder().decode(b64(payload))) as Token;
-    return t.app === BRAND.appName && typeof t.expiresAt === "string" ? t : null;
+    return t.app === BRAND.appCode && typeof t.expiresAt === "string" ? t : null;
   } catch {
     return null;
   }
@@ -79,7 +79,7 @@ export async function activate(licenseKey: string): Promise<LicenseState> {
   const res = await fetch(`${MARKET.url}/api/license/activate`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ key: licenseKey.trim(), app: BRAND.appName }),
+    body: JSON.stringify({ key: licenseKey.trim(), app: BRAND.appCode }),
   });
   if (!res.ok) throw new Error(res.status === 404 ? "등록되지 않은 구독 키입니다." : `구독을 확인하지 못했습니다 (HTTP ${res.status}).`);
   const { token } = (await res.json()) as { token?: string };
