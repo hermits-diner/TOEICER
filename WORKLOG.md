@@ -2,6 +2,19 @@
 
 ## 2026-11-06
 
+### 인쇄가 앱 전체를 덮지 않게 함, 구매한 세트에서 "AI"라는 말을 뺌 (TOEFLER에서 옮김)
+
+- 운영자 요청: "출력시 출력창이 본 앱 전체를 뒤덮는 것은 별로야", "마켓 구매에서 AI라는 말은 모두 빼자", "형제 앱에도 똑같이 옮겨줘", "인쇄창도 형제앱에 이식해". 원인과 이유는 TOEFLER WORKLOG 2026-11-06에 있다.
+- 인쇄: 인쇄를 누르면 미리 보기가 있는 작은 창(`print.html`, `src/printWindow.ts`, `src/lib/print.ts`)이 따로 열리고, 인쇄하거나 취소하면 닫힌다. 창을 못 열면 예전처럼 앱에서 연다.
+  - `vite.config.ts`에 print 페이지를, `capabilities/default.json`에 print 창과 창 만들기 권한을 더했다.
+  - `App.css`에 `print-color-adjust: exact`를 넣었다. 인쇄는 기본으로 배경을 빼기 때문이다.
+- 문구: 구매한 세트의 제목에서 예전 판의 `AI · `를 뗀다(`package.ts`, 공유 파일은 그대로). 신고한 문항에 "AI가 정한 답"이 있던 앱은 "출제 정답"으로 바꿨다.
+- `core.mjs sync`로 공유 파일을 받았다. 구매본 잠금용 공유 파일(`marketLock.ts`, `sealed.ts`, `market.rs`, `MarketLogin.tsx`, `LockedSet.tsx`, `PrintMark.tsx`)도 함께 들어왔지만 아직 연결하지 않았다. 설계(exam-market `2026-11-06-buyer-only-sets-design.md` 5.7)의 순서대로 이 앱의 첫 유료 세트 전에 연결한다. 그때까지 이 앱의 세트는 사이트에서 유료로 팔지 않는다.
+- 확인
+  - `npm test` 235개, `tsc --noEmit`, `vite build`, debug 앱 빌드 통과.
+  - 실제 앱: 샘플 "샘플 · Reading (Part 5–7)"에서 인쇄를 눌러 인쇄 창과 미리 보기(4쪽)를 봤고, 취소하면 창이 닫히고 앱은 그대로였다. 프린터로 출력하지는 않았다.
+- 실제 앱 확인은 데이터 폴더를 따로 두고 했다. 그래도 앱이 켜질 때 쓰는 그날의 자동 백업은 문서 폴더에 생기므로, 확인 뒤 지웠다.
+
 ### 세트 제목의 "AI · "를 뺌, 만들기·가져오기 본문 글꼴을 가이드와 맞춤 (TOEFLER에서 옮김, 운영자 요청)
 
 - 운영자 요청

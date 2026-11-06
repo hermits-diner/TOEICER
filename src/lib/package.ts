@@ -158,6 +158,9 @@ export interface OpenedPackage {
   warnings: string[];
 }
 
+/** Sets made by earlier versions carry this in their titles; a bought set does not show it. */
+const bareTitle = (title: string) => title.replace(/^AI · /, "");
+
 /** Reads a set file at a path (a picked file, or one double-clicked in Explorer); its media go into the archive. */
 export async function readPackage(path: string): Promise<OpenedPackage> {
   const r = await invoke<{ manifest: Partial<Manifest>; tests: string[] }>("package_read", { path });
@@ -172,16 +175,17 @@ export async function readPackage(path: string): Promise<OpenedPackage> {
     }
     const v = validateImport(raw);
     if (!v.test) throw new Error(`세트 파일이 올바르지 않습니다: ${v.errors.slice(0, 3).join(" / ")}`);
-    tests.push(v.test);
+    tests.push(r.manifest.market ? { ...v.test, title: bareTitle(v.test.title) } : v.test);
     warnings.push(...v.warnings);
   }
   const m = r.manifest;
+  const named = (title: string) => (m.market ? bareTitle(title) : title);
   const manifest: Manifest = {
     format: m.format ?? 1,
     app: m.app ?? "",
     appVersion: m.appVersion ?? "",
     edition: m.edition ?? "",
-    title: m.title ?? tests[0]?.title ?? "",
+    title: named(m.title ?? tests[0]?.title ?? ""),
     kind: m.kind ?? tests[0]?.kind ?? "reading",
     createdAt: m.createdAt ?? "",
     questions: m.questions ?? tests.reduce((n, t) => n + countQuestions(t), 0),

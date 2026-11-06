@@ -65,7 +65,7 @@ export default function QuestionGroupView({ group, answers, onAnswer, results, f
           ))}
         </div>
 
-        {results && isReported && <p className="answer-key">AI가 정한 답: {q.answer.join(" / ")}</p>}
+        {results && isReported && <p className="answer-key">출제 정답: {q.answer.join(" / ")}</p>}
         {results && !isReported && !results[q.id] && (
           <>
             <p className="answer-key">정답: {q.answer.join(" / ")}</p>

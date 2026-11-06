@@ -650,6 +650,9 @@ body,
     color: #000;
     font: 11pt/1.55 Georgia, "Times New Roman", "Batang", serif;
     user-select: text;
+    /* Printing leaves out backgrounds by default; the sheets' coloured bands and table heads, some with white text, need theirs. */
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
   }
 

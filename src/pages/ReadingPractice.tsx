@@ -1,6 +1,7 @@
 import { ChevronLeft, Flag, GraduationCap, Printer, RotateCcw, Save, Timer } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
+import { printPage } from "../lib/print";
 import AudioPlayer from "../components/AudioPlayer";
 import SpeakButton from "../components/SpeakButton";
 import HighlightToolbar from "../components/HighlightToolbar";
@@ -111,7 +112,7 @@ export default function ReadingPractice({ testId, onExit }: { testId: number; on
       setPrintMode(mode);
       setPrintMenu(false);
     });
-    window.print();
+    void printPage();
   };
 
   useEffect(() => {

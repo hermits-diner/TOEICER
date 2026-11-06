@@ -46,6 +46,18 @@
     "src/components/UpdateBanner.test.tsx": "7440cbf257ba5c5564835327650f15fb3c8bbf3d9799dcae217d343b0215b9bb",
     "scripts/publish-update.mjs": "a29366e65820f2e62805171b5e7651abe41aa00a758f0943223f6c3bb701dd4c",
     "scripts/publish-update.test.mjs": "5cae041bcaa597532cec421cd5ed70932a4ae196a6cbf72f49b40dc6fcb893a7",
-    "src-tauri/tauri.release.conf.json": "ca47b66a4879e955ed2cbe38aba72390dad1fa5edb203d6e06c61cf1156da36f"
+    "src-tauri/tauri.release.conf.json": "ca47b66a4879e955ed2cbe38aba72390dad1fa5edb203d6e06c61cf1156da36f",
+    "src-tauri/src/market.rs": "3beaf95052bdffbd6687fb9dab0ed3a83ef8305a65112487034154b1069f3dd3",
+    "src/lib/sealed.ts": "1c9988270a7801526f714456ba47f0e5b93ba0167f0b7ab23e58c521930e296d",
+    "src/lib/sealed.test.ts": "9412b37ceeeebebb4671d892ba233a392cafb708cb328379816a10a5ca29d117",
+    "src/lib/marketLock.ts": "3a9ca3c55afdf43241b9d5cd02972cf1bd598642b9829ad9c1524959aa31f714",
+    "src/components/MarketLogin.tsx": "c5c44fbeb685897615be470f3e08a6c8fcfc641aeb47032fca9879a43a319cca",
+    "src/components/MarketLogin.test.tsx": "464b82a610d90f6c69f9af96fc12b41f08a3bb9491114373cd2c46850a0c5d66",
+    "src/components/LockedSet.tsx": "9fbdeac44aff68c02de7f6f808c5a16bc07073697b5960c394447801df1a313a",
+    "src/components/PrintMark.tsx": "32b06a959824e29e3606907b3c84804c0d03f8eb6d99f9b5a045ae2940d672e4",
+    "src/lib/print.ts": "9a4753ce4a0f5dfdb191e87791d9f1b6660ecb8a44eb1f383ec9ad580ae95cad",
+    "src/lib/print.test.ts": "f5672d5dc07ce6c77c861a6e8706c381be33b84bfea5d4e9c989e10ba4b555f2",
+    "src/printWindow.ts": "4234ae384d9a97f273048757b03505a9d40eccd1e8eee7cb4c85e441e0a2f190",
+    "print.html": "88ca2fea6dd8a601cc8a3f087778b482f3fa7715318a24724e39d39427357576"
   }
 }

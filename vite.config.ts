@@ -10,6 +10,8 @@ export default defineConfig(({ mode }) => ({
   plugins: [react(), tailwindcss()],
   // The edition is fixed at build time, so a Reader build drops Studio's code entirely (see src/lib/edition.ts).
   define: { __STUDIO__: JSON.stringify(mode === "studio") },
+  // The print window has a page of its own (src/lib/print.ts).
+  build: { rollupOptions: { input: { main: "index.html", print: "print.html" } } },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //
