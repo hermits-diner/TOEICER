@@ -1,5 +1,7 @@
 """Writes src-tauri/icons/app-icon.svg, the source for every app and shortcut icon (moduTOEIC: briefcase).
 
+NOTE (2026-11-06): the current icons come from exam-market/design/brand/icons (app-icon-design skill). Running this script writes the old icon source back.
+
 The tile is a superellipse ("squircle", continuous curvature like current macOS icons) rather than a
 rounded rectangle. Regenerate the platform icons afterwards:
     python scripts/build-icon.py

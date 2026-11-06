@@ -2,6 +2,14 @@
 
 ## 2026-11-06
 
+### 새 앱 아이콘 적용 (운영자 선택 A안)
+
+- 운영자: "아이콘은 A안이 좋네", "아이콘도 적용하긴 해". moduTOEIC의 `src-tauri/icons` 전체를 새 아이콘으로 바꿨다. 32, 64, ICO의 작은 크기는 따로 그린 컷이다.
+- 원본과 다시 만드는 법은 exam-market의 `design/brand/`에 있다. `scripts/build-icon.py`는 옛 아이콘을 다시 쓰므로 돌리지 않는다. 파일 맨 위에 경고를 달았다.
+- 릴리스는 하지 않았다. 사용자에게는 다음 릴리스 때 간다.
+- 확인: 파일 형식(RGBA, ICO 크기 8개, ICNS)과 렌더링만 봤다. 이 저장소에서 앱 빌드는 하지 않았다.
+
+
 ### 앱 이름을 moduTOEIC로 바꿈 (운영자 요청, TOEFLER에서 함께)
 
 - 운영자: "이름을 전면 수정하자. moduTOEFL, moduIELTS, moduSAT, moduKSAT, moduOPIC, moduTOEIC, moduGONGSI로", "moduTOEIC_SPEAKING 빠졌네". 이유와 방법은 TOEFLER WORKLOG 2026-11-06에 있다.
