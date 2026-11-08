@@ -6,18 +6,19 @@ const PINS = [
   { version: 2, checksum: "3941775c3aa9434b5db96783ad79b98b65c69dbfa6267edcc183e432594d3d7d0e2aa920bf2a9ca87161b58805850499" },
 ];
 // applied === null: the staged database has no _sqlx_migrations table at all.
-const h = vi.hoisted(() => ({ applied: [] as { version: number; checksum: string }[] | null, invoke: vi.fn() }));
+const h = vi.hoisted(() => ({ applied: [] as { version: number; checksum: string }[] | null, invoke: vi.fn(), closed: [] as unknown[][] }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke: (...a: unknown[]) => h.invoke(...a) }));
 vi.mock("@tauri-apps/plugin-sql", () => ({
   default: {
-    load: async () => ({
+    load: async (path: string) => ({
+      path,
       // SQLite's hex() is upper case, as the staged database answers.
       select: async (sql: string) => {
         if (!sql.includes("_sqlx_migrations")) return [{ n: 3 }];
         if (h.applied === null) throw new Error("error returned from database: (code: 1) no such table: _sqlx_migrations");
         return h.applied.map((m) => ({ version: m.version, checksum: m.checksum.toUpperCase() }));
       },
-      close: async () => {},
+      close: async (...a: unknown[]) => { h.closed.push(a); },
     }),
   },
 }));
@@ -31,6 +32,18 @@ beforeEach(() => {
 });
 
 describe("prepareRestore", () => {
+  // A close with no name closes every pool, the app's own too, and the restore then fails on "closed pool".
+  it("closes only the staged database, whether the backup opens or is refused", async () => {
+    const staged = `sqlite:${await h.invoke("restore_prepare")}`;
+    h.closed = [];
+    h.applied = [...PINS];
+    await prepareRestore("C:/b.zip");
+    expect(h.closed).toEqual([[staged]]);
+    h.closed = [];
+    h.applied = null;
+    await expect(prepareRestore("C:/b.zip")).rejects.toThrow();
+    expect(h.closed).toEqual([[staged]]);
+  });
   it("knows every migration this build ships", () => {
     const files = Object.keys(import.meta.glob("../../src-tauri/migrations/*.sql"));
     const highest = Math.max(...files.map((f) => Number(/(\d+)_[^/]*\.sql$/.exec(f)![1])));

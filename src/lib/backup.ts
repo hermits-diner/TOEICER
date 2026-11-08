@@ -112,14 +112,14 @@ export async function prepareRestore(source: string): Promise<RestorePreview> {
     const attempts = await count("SELECT COUNT(*) AS n FROM attempt");
     return { tests, attempts };
   } catch (e) {
-    await db?.close().catch(() => {});
+    await db?.close(db.path).catch(() => {});
     db = null;
     await invoke("restore_cancel");
     const msg = e instanceof Error ? e.message : String(e);
     if (msg.includes("no such table: _sqlx_migrations")) throw new Error(FOREIGN_BACKUP);
     throw new Error(msg.includes("no such table") ? `${BRAND.appName} 앱의 백업이 아닙니다.` : msg);
   } finally {
-    await db?.close().catch(() => {});
+    await db?.close(db.path).catch(() => {});
   }
 }
 
