@@ -13,7 +13,7 @@ const DAY = 24 * 60 * 60 * 1000;
 
 /** The market's address, this app's place on it, and the public half of the market's token-signing key (SPKI, base64). */
 export const MARKET = {
-  url: "https://exam-market.hermitsdiner.workers.dev",
+  url: (BRAND as { marketUrl?: string }).marketUrl ?? "https://exam-market.hermitsdiner.workers.dev",
   /** This app on the market: the subscribe page is /studio/<slug>/subscribe. */
   slug: BRAND.marketSlug,
   publicKey: "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEuNY7nlpFWVBa1yU/GvBXlgKurtlkVQwu1Mkax5NOHuAkCnTho0TX6K1cZwx2ljZNcZk0mC95J9qc+dvHuDp4VA==",

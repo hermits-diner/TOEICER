@@ -305,6 +305,29 @@ export function lenientReader() {
   };
 }
 
+/**
+ * What practice_draft.marked_json keeps for an attempt's highlights, which is the passages' whole HTML: of a locked set
+ * sealed under the set's key, like its text, so a backup does not hold the passages in the clear. With no key on this PC
+ * nothing is written in the clear either: highlights sealed earlier stay for when the buyer signs in again.
+ */
+export async function sealDraftMarks(testId: number, marks: string | null, previous: string | null): Promise<string | null> {
+  if (marks === null || !(await isLocked(testId))) return marks;
+  const raw = await setKeyOf(testId);
+  if (raw) return sealValue(await importKey(raw), marks);
+  return isSealedValue(previous) ? previous : null;
+}
+
+/**
+ * The highlights sealDraftMarks kept, or an older version's plain JSON as it stands. Null when they cannot be opened now
+ * (no key here, or the set was sealed again under another): the attempt's answers still stand, only its highlights wait.
+ */
+export async function openDraftMarks(testId: number, stored: string | null): Promise<string | null> {
+  if (!isSealedValue(stored)) return stored;
+  const reader = await readerOf(testId);
+  const opened = reader ? await reader.text(stored).catch(() => null) : null;
+  return isSealedValue(opened) ? null : opened;
+}
+
 export type Seal = (plain: string) => Promise<string>;
 
 /** A new set key under this purchase: how to seal the set's text, and what test_lock keeps. */

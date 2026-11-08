@@ -412,6 +412,9 @@ mod tests {
 
     #[test]
     fn the_old_backup_folder_moves_to_the_new_name_once() {
+        if brand::OLD_BACKUP_FOLDER == brand::BACKUP_FOLDER {
+            return;
+        }
         let docs = std::env::temp_dir().join(format!("{}-adopt-{}", brand::PREFIX, std::process::id()));
         let (old, new) = (docs.join(brand::OLD_BACKUP_FOLDER), docs.join(brand::BACKUP_FOLDER));
         fs::create_dir_all(&old).unwrap();
